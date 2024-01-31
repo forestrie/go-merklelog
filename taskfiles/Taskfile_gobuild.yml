@@ -1,0 +1,26 @@
+version: '3'
+
+# Environment variables set for all commands.
+env_build: &env_build
+  # XDG_CACHE_HOME: This may need to be set for python builds, but try to use
+  # virtual env instead.
+
+  # The GOCACHE in a linux container on Docker for windows MUST be on a linuxy
+  # file system
+  GOCACHE: /tmp/datatrails/merklelog
+
+tasks:
+
+  go:build:
+    desc: "run go build against all go modules"
+    dir: ../
+    vars:
+      GO_MOD_DIRS:
+        sh: find . -type f -name 'go.mod'
+
+    cmds:
+      - for: { var: GO_MOD_DIRS, as: MODULE}
+        cmd: |
+          cd $(dirname {{.MODULE}})
+
+          go build ./...

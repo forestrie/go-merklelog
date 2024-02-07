@@ -2,7 +2,6 @@ package mmrtesting
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	"github.com/datatrails/go-datatrails-common/azblob"
@@ -23,13 +22,6 @@ const (
 	V1MMRBlobNameFmt = "%016d.log"
 )
 
-func TenantMassifPrefix(tenantIdentity string) string {
-	return fmt.Sprintf(
-		"%s/%s/massifs/", V1MMRPrefix, tenantIdentity,
-	)
-
-}
-
 type TestConfig struct {
 	// We seed the RNG of the provided StartTimeMS. It is normal to force it to
 	// some fixed value so that the generated data is the same from run to run.
@@ -44,7 +36,7 @@ func NewTestContext(t *testing.T, cfg TestConfig) TestContext {
 	c := TestContext{
 		T: t,
 	}
-	logger.New("TEST")
+	logger.New("INFO")
 	c.Log = logger.Sugar.WithServiceName(cfg.TestLabelPrefix)
 
 	container := cfg.Container
@@ -70,13 +62,11 @@ func (c *TestContext) GetStorer() *azblob.Storer {
 	return c.Storer
 }
 
-func (c *TestContext) DeleteTenantMassifs(tenantIdentity string) {
-
+func (c *TestContext) DeleteBlobsByPrefix(blobPrefixPath string) {
 	var err error
 	var r *azblob.ListerResponse
 	var blobs []string
 
-	blobPrefixPath := TenantMassifPrefix(tenantIdentity)
 	var marker azblob.ListMarker
 	for {
 		r, err = c.Storer.List(

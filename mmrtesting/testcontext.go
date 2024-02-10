@@ -36,7 +36,7 @@ func NewTestContext(t *testing.T, cfg TestConfig) TestContext {
 	c := TestContext{
 		T: t,
 	}
-	logger.New("INFO")
+	logger.New("DEBUG")
 	c.Log = logger.Sugar.WithServiceName(cfg.TestLabelPrefix)
 
 	container := cfg.Container

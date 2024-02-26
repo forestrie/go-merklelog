@@ -1,7 +1,9 @@
 package mmrtesting
 
 import (
+	"crypto/sha256"
 	"encoding/binary"
+	"hash"
 	"math/rand"
 	"strings"
 	"testing"
@@ -14,16 +16,23 @@ const (
 	DefaultGeneratorTenantIdentity = "tenant/0684984b-654d-4301-ad10-a508126e187d"
 )
 
+func HashWriteUint64(hasher hash.Hash, value uint64) {
+	b := [8]byte{}
+	binary.BigEndian.PutUint64(b[:], value)
+	hasher.Write(b[:])
+}
+
 // Create random values of various sorts for testing. Seeded so that from run to
 // run the values can be the same. Intended for white box tests that benefit from a
 // large volume of synthetic data.
 type TestGenerator struct {
-	Cfg       TestGeneratorConfig
-	T         *testing.T
-	rand      rand.Rand
-	bipWords  []string
-	StartTime time.Time
-	LastTime  time.Time
+	Cfg           TestGeneratorConfig
+	T             *testing.T
+	rand          rand.Rand
+	bipWords      []string
+	StartTime     time.Time
+	LastTime      time.Time
+	leafGenerator LeafGenerator
 }
 
 type TestGeneratorConfig struct {
@@ -33,21 +42,24 @@ type TestGeneratorConfig struct {
 	TestLabelPrefix string
 }
 
+type LeafGenerator func(tenantIdentity string, base, i uint64) ([]byte, []byte)
+
 // NewTestGenerator creates a deterministic, but random looking, test data generator.
 // Given the same seed, the series of data generated on different runs is identical.
 // This means that we generate valid values for things like uuid based
 // identities and simulated time stamps, but the log telemetry from successive runs will
 // be usefuly stable.
-func NewTestGenerator(t *testing.T, seed int64, cfg TestGeneratorConfig) TestGenerator {
+func NewTestGenerator(t *testing.T, seed int64, cfg TestGeneratorConfig, leafGenerator LeafGenerator) TestGenerator {
 
 	source := rand.NewSource(seed)
 	g := TestGenerator{
-		Cfg:       cfg,
-		T:         t,
-		rand:      *rand.New(source),
-		bipWords:  bip32WordList(),
-		StartTime: time.UnixMilli(cfg.StartTimeMS),
-		LastTime:  time.UnixMilli(cfg.StartTimeMS),
+		Cfg:           cfg,
+		T:             t,
+		rand:          *rand.New(source),
+		bipWords:      bip32WordList(),
+		StartTime:     time.UnixMilli(cfg.StartTimeMS),
+		LastTime:      time.UnixMilli(cfg.StartTimeMS),
+		leafGenerator: leafGenerator,
 	}
 
 	if cfg.TenantIdentity == "" {
@@ -61,6 +73,28 @@ func NewTestGenerator(t *testing.T, seed int64, cfg TestGeneratorConfig) TestGen
 	return g
 }
 
+func (g *TestGenerator) GenerateNumberedLeafBatch(tenantIdentity string, base, count uint64) [][][]byte {
+	h := sha256.New()
+	return g.GenerateLeafBatch(tenantIdentity, base, count, func(tenantIdentity string, base, i uint64) ([]byte, []byte) {
+		h.Reset()
+		HashWriteUint64(h, base+i)
+		index, _ := g.leafGenerator(tenantIdentity, base, i)
+		return index, h.Sum(nil)
+	})
+}
+
+func (g *TestGenerator) GenerateLeafBatch(tenantIdentity string, base, count uint64, gf LeafGenerator) [][][]byte {
+	indexedLeaves := make([][][]byte, 0, count)
+	for i := uint64(0); i < count; i++ {
+		index, leaf := gf(tenantIdentity, base, i)
+		indexedLeaves = append(indexedLeaves, [][]byte{index, leaf})
+	}
+	return indexedLeaves
+}
+
+func (c *TestGenerator) PadWithLeafEntries(data []byte, n int) []byte {
+	return c.PadWithNumberedLeaves(data, 0, n)
+}
 func (c *TestGenerator) PadWithNumberedLeaves(data []byte, first, n int) []byte {
 	if n == 0 {
 		return data

@@ -13,6 +13,7 @@ type TestContext struct {
 	Log    logger.Logger
 	Storer *azblob.Storer
 	T      *testing.T
+	Cfg    TestConfig
 }
 
 // XXX: TODO TenantMassifPrefix duplicated here to avoid import cycle. refactor
@@ -30,13 +31,19 @@ type TestConfig struct {
 	TestLabelPrefix string
 	TenantIdentity  string // can be ""
 	Container       string // can be "" defaults to TestLablePrefix
+	DebugLevel      string // defaults to INFO
 }
 
 func NewTestContext(t *testing.T, cfg TestConfig) TestContext {
 	c := TestContext{
-		T: t,
+		T:   t,
+		Cfg: cfg,
 	}
-	logger.New("DEBUG")
+	logLevel := cfg.DebugLevel
+	if logLevel == "" {
+		logLevel = "INFO"
+	}
+	logger.New(logLevel)
 	c.Log = logger.Sugar.WithServiceName(cfg.TestLabelPrefix)
 
 	container := cfg.Container
@@ -60,6 +67,19 @@ func (c *TestContext) GetLog() logger.Logger { return c.Log }
 
 func (c *TestContext) GetStorer() *azblob.Storer {
 	return c.Storer
+}
+
+func (c *TestContext) NewStorer() *azblob.Storer {
+
+	storer, err := azblob.NewDev(azblob.NewDevConfigFromEnv(), c.Cfg.Container)
+	if err != nil {
+		c.T.Fatalf("failed to connect to blob store emulator: %v", err)
+	}
+	client := storer.GetServiceClient()
+	// Note: we expect a 'already exists' error here and  ignore it.
+	_, _ = client.CreateContainer(context.Background(), c.Cfg.Container, nil)
+
+	return storer
 }
 
 func (c *TestContext) DeleteBlobsByPrefix(blobPrefixPath string) {

@@ -42,7 +42,16 @@ type TestGeneratorConfig struct {
 	TestLabelPrefix string
 }
 
-type LeafGenerator func(tenantIdentity string, base, i uint64) ([]byte, []byte)
+// AddLeafArgs is the return value of all LeafGenerator implementations. It
+// carries just enough to successfully call AddLeafEntry on a MassifContext The
+// leaf generator is free to decide on appropriate values
+type AddLeafArgs struct {
+	Id       uint64
+	AppIndex []byte
+	Value    []byte
+}
+
+type LeafGenerator func(tenantIdentity string, base, i uint64) AddLeafArgs
 
 // NewTestGenerator creates a deterministic, but random looking, test data generator.
 // Given the same seed, the series of data generated on different runs is identical.
@@ -73,21 +82,25 @@ func NewTestGenerator(t *testing.T, seed int64, cfg TestGeneratorConfig, leafGen
 	return g
 }
 
-func (g *TestGenerator) GenerateNumberedLeafBatch(tenantIdentity string, base, count uint64) [][][]byte {
+func (g *TestGenerator) GenerateNumberedLeafBatch(tenantIdentity string, base, count uint64) []AddLeafArgs {
 	h := sha256.New()
-	return g.GenerateLeafBatch(tenantIdentity, base, count, func(tenantIdentity string, base, i uint64) ([]byte, []byte) {
+	return g.GenerateLeafBatch(tenantIdentity, base, count, func(tenantIdentity string, base, i uint64) AddLeafArgs {
 		h.Reset()
 		HashWriteUint64(h, base+i)
-		index, _ := g.leafGenerator(tenantIdentity, base, i)
-		return index, h.Sum(nil)
+		args := g.leafGenerator(tenantIdentity, base, i)
+		return AddLeafArgs{
+			Id:       args.Id,
+			AppIndex: args.AppIndex,
+			Value:    h.Sum(nil),
+		}
 	})
 }
 
-func (g *TestGenerator) GenerateLeafBatch(tenantIdentity string, base, count uint64, gf LeafGenerator) [][][]byte {
-	indexedLeaves := make([][][]byte, 0, count)
+func (g *TestGenerator) GenerateLeafBatch(tenantIdentity string, base, count uint64, gf LeafGenerator) []AddLeafArgs {
+	indexedLeaves := make([]AddLeafArgs, 0, count)
 	for i := uint64(0); i < count; i++ {
-		index, leaf := gf(tenantIdentity, base, i)
-		indexedLeaves = append(indexedLeaves, [][]byte{index, leaf})
+		args := gf(tenantIdentity, base, i)
+		indexedLeaves = append(indexedLeaves, args)
 	}
 	return indexedLeaves
 }

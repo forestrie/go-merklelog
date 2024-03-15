@@ -53,8 +53,8 @@ github.com/containerd/cgroups/v3 v3.0.2 h1:f5WFqIVSgo5IZmtTT3qVBo6TzI1ON6sycSBKk
 github.com/containerd/cgroups/v3 v3.0.2/go.mod h1:JUgITrzdFqp42uI2ryGA+ge0ap/nxzYgkGmIcetmErE=
 github.com/coreos/go-systemd/v22 v22.5.0 h1:RrqgGjYQKalulkV8NGVIfkXQf6YYmOyiJKk8iXXhfZs=
 github.com/coreos/go-systemd/v22 v22.5.0/go.mod h1:Y58oyj3AT4RCenI/lSvhwexgC+NSVTIJ3seZv2GcEnc=
-github.com/datatrails/go-datatrails-common v0.12.15 h1:2q1C6AGQFPo2NMUKc/VoczYVsU3rjjR2wIlRMLF/+Ck=
-github.com/datatrails/go-datatrails-common v0.12.15/go.mod h1:Wuzr1lpVQ3Y1/Gr3fi3Q7maE9K++TbEe3QaMeLcUQQc=
+github.com/datatrails/go-datatrails-common v0.13.0 h1:erEu97WMLrsd7JPDXGN9cCVB4rQazvJfiEOgbkjk+m4=
+github.com/datatrails/go-datatrails-common v0.13.0/go.mod h1:WMOLP5W5Go676mwH7t87BvgE7wS/3e5EOSYDXeeaJ7c=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

@@ -4,7 +4,7 @@ go 1.22
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus v1.4.0
-	github.com/datatrails/go-datatrails-common v0.12.15
+	github.com/datatrails/go-datatrails-common v0.13.0
 	github.com/google/uuid v1.6.0
 	github.com/opentracing/opentracing-go v1.2.0
 	github.com/stretchr/testify v1.8.4

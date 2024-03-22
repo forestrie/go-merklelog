@@ -3,18 +3,13 @@ package mmrtesting
 import (
 	"context"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus"
 	"github.com/datatrails/go-datatrails-common/azbus"
-	"github.com/opentracing/opentracing-go"
 )
 
 type TestCallCounter struct {
 	MethodCalls map[string]int
 }
 
-type TestReceiverCallCounter struct {
-	TestCallCounter
-}
 type TestSendCallCounter struct {
 	TestCallCounter
 }
@@ -46,31 +41,11 @@ func (r *TestCallCounter) MethodCallCount(name string) int {
 	return cur
 }
 
-func (r *TestReceiverCallCounter) Open() error                         { return nil }
-func (r *TestReceiverCallCounter) Close(context.Context)               {}
-func (r *TestReceiverCallCounter) ReceiveMessages(azbus.Handler) error { return nil }
-func (r *TestReceiverCallCounter) String() string                      { return "test receiver" }
-
-// Listener interface
-func (r *TestReceiverCallCounter) Listen() error                  { return nil }
-func (r *TestReceiverCallCounter) Shutdown(context.Context) error { return nil }
-
-func (r *TestReceiverCallCounter) GetAZClient() azbus.AZClient { return azbus.AZClient{} }
-
-func (s *TestSendCallCounter) Send(ctx context.Context, msg []byte, opts ...azbus.OutMessageOption) error {
+func (s *TestSendCallCounter) Send(ctx context.Context, msg *azbus.OutMessage) error {
 	s.IncMethodCall("Send")
 	return nil
 }
-
-func (s *TestSendCallCounter) Open() error { return nil }
-func (s *TestSendCallCounter) SendMsg(context.Context, azbus.OutMessage, ...azbus.OutMessageOption) error {
-	s.IncMethodCall("SendMsg")
-	return nil
-}
+func (s *TestSendCallCounter) Open() error                 { return nil }
 func (s *TestSendCallCounter) Close(context.Context)       {}
 func (s *TestSendCallCounter) String() string              { return "testSender" }
 func (s *TestSendCallCounter) GetAZClient() azbus.AZClient { return azbus.AZClient{} }
-
-func (*TestSendCallCounter) UpdateSendingMesssageForSpan(
-	ctx context.Context, message *azservicebus.Message, span opentracing.Span) {
-}

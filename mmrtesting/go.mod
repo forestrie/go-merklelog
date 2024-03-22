@@ -3,10 +3,8 @@ module github.com/datatrails/forestrie/go-forestrie/mmrtesting
 go 1.22
 
 require (
-	github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus v1.4.0
 	github.com/datatrails/go-datatrails-common v0.13.0
 	github.com/google/uuid v1.6.0
-	github.com/opentracing/opentracing-go v1.2.0
 	github.com/stretchr/testify v1.8.4
 )
 
@@ -19,6 +17,7 @@ require (
 	github.com/Azure/azure-sdk-for-go v68.0.0+incompatible // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.9.1 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.5.1 // indirect
+	github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus v1.4.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v0.4.1 // indirect
 	github.com/Azure/go-amqp v1.0.0 // indirect
 	github.com/Azure/go-autorest v14.2.0+incompatible // indirect
@@ -48,6 +47,7 @@ require (
 	github.com/opencontainers/runtime-spec v1.1.0 // indirect
 	github.com/opentracing-contrib/go-observer v0.0.0-20170622124052-a52f23424492 // indirect
 	github.com/opentracing-contrib/go-stdlib v1.0.0 // indirect
+	github.com/opentracing/opentracing-go v1.2.0 // indirect
 	github.com/openzipkin-contrib/zipkin-go-opentracing v0.5.0 // indirect
 	github.com/openzipkin/zipkin-go v0.4.2 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect

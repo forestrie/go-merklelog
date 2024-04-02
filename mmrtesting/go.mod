@@ -3,9 +3,9 @@ module github.com/datatrails/forestrie/go-forestrie/mmrtesting
 go 1.22
 
 require (
-	github.com/datatrails/go-datatrails-common v0.13.0
+	github.com/datatrails/go-datatrails-common v0.13.6
 	github.com/google/uuid v1.6.0
-	github.com/stretchr/testify v1.8.4
+	github.com/stretchr/testify v1.9.0
 )
 
 replace (

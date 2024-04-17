@@ -41,7 +41,7 @@ func NewTestContext(t *testing.T, cfg TestConfig) TestContext {
 	}
 	logLevel := cfg.DebugLevel
 	if logLevel == "" {
-		logLevel = "INFO"
+		logLevel = "NOOP"
 	}
 	logger.New(logLevel)
 	c.Log = logger.Sugar.WithServiceName(cfg.TestLabelPrefix)
@@ -98,7 +98,12 @@ func (c *TestContext) DeleteBlobsByPrefix(blobPrefixPath string) {
 		for _, i := range r.Items {
 			blobs = append(blobs, *i.Name)
 		}
-		if len(r.Items) == 0 || r.Marker == nil {
+		if len(r.Items) == 0 {
+			break
+		}
+
+		// check for an empty marker as well as a nil marker
+		if r.Marker == nil || *r.Marker == "" {
 			break
 		}
 		marker = r.Marker

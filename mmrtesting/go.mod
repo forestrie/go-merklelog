@@ -3,7 +3,7 @@ module github.com/datatrails/forestrie/go-forestrie/mmrtesting
 go 1.22
 
 require (
-	github.com/datatrails/go-datatrails-common v0.13.6
+	github.com/datatrails/go-datatrails-common v0.14.0
 	github.com/google/uuid v1.6.0
 	github.com/stretchr/testify v1.9.0
 )
@@ -41,7 +41,6 @@ require (
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.0 // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
-	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.18.1 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/opencontainers/runtime-spec v1.1.0 // indirect

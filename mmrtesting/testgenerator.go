@@ -49,6 +49,7 @@ type AddLeafArgs struct {
 	Id       uint64
 	AppIndex []byte
 	Value    []byte
+	TenantId string
 }
 
 type LeafGenerator func(tenantIdentity string, base, i uint64) AddLeafArgs
@@ -92,6 +93,7 @@ func (g *TestGenerator) GenerateNumberedLeafBatch(tenantIdentity string, base, c
 			Id:       args.Id,
 			AppIndex: args.AppIndex,
 			Value:    h.Sum(nil),
+			TenantId: tenantIdentity,
 		}
 	})
 }

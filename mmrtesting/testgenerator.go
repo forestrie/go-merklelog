@@ -46,10 +46,10 @@ type TestGeneratorConfig struct {
 // carries just enough to successfully call AddLeafEntry on a MassifContext The
 // leaf generator is free to decide on appropriate values
 type AddLeafArgs struct {
-	Id       uint64
-	AppIndex []byte
-	Value    []byte
-	TenantId string
+	Id    uint64
+	AppId []byte
+	Value []byte
+	LogId []byte
 }
 
 type LeafGenerator func(tenantIdentity string, base, i uint64) AddLeafArgs
@@ -90,10 +90,10 @@ func (g *TestGenerator) GenerateNumberedLeafBatch(tenantIdentity string, base, c
 		HashWriteUint64(h, base+i)
 		args := g.leafGenerator(tenantIdentity, base, i)
 		return AddLeafArgs{
-			Id:       args.Id,
-			AppIndex: args.AppIndex,
-			Value:    h.Sum(nil),
-			TenantId: tenantIdentity,
+			Id:    args.Id,
+			AppId: args.AppId,
+			Value: h.Sum(nil),
+			LogId: []byte(tenantIdentity),
 		}
 	})
 }

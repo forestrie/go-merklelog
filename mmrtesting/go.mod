@@ -3,7 +3,7 @@ module github.com/datatrails/forestrie/go-forestrie/mmrtesting
 go 1.22
 
 require (
-	github.com/datatrails/go-datatrails-common v0.14.0
+	github.com/datatrails/go-datatrails-common v0.15.1
 	github.com/google/uuid v1.6.0
 	github.com/stretchr/testify v1.9.0
 )
@@ -54,10 +54,10 @@ require (
 	go.uber.org/automaxprocs v1.5.3 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.26.0 // indirect
-	golang.org/x/crypto v0.17.0 // indirect
+	golang.org/x/crypto v0.21.0 // indirect
 	golang.org/x/exp v0.0.0-20231110203233-9a3e6036ecaa // indirect
-	golang.org/x/net v0.19.0 // indirect
-	golang.org/x/sys v0.15.0 // indirect
+	golang.org/x/net v0.21.0 // indirect
+	golang.org/x/sys v0.18.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 	google.golang.org/genproto v0.0.0-20231127180814-3a041ad873d4 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20231127180814-3a041ad873d4 // indirect

@@ -38,14 +38,16 @@ func (lc *LogBlobContext) ReadData(
 		return err
 	}
 	lc.Tags = rr.Tags
-	if lc.Tags != nil {
-		if rr.Tags != nil {
 
-		}
+	if rr.ETag != nil {
+		lc.ETag = *rr.ETag
 	}
-	lc.ETag = *rr.ETag
+
+	if rr.LastModified != nil {
+		lc.LastModified = *rr.LastModified
+	}
+
 	lc.LastRead = time.Now()
-	lc.LastModified = *rr.LastModified
 	lc.ContentLength = rr.ContentLength
 
 	return nil

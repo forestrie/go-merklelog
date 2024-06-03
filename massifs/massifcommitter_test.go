@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gotest.tools/v3/assert"
 )
 
 // TestMassifCommitter_firstMassif covers creation of the first massive blob and related conditions
@@ -89,7 +89,7 @@ func TestMassifCommitter_massifAddFirst(t *testing.T) {
 	mc.Data = g.PadWithLeafEntries(mc.Data, 2)
 
 	_, err = c.CommitContext(context.Background(), mc)
-	assert.NilError(t, err)
+	assert.Nil(t, err)
 
 	// Ensure what we read back passes the commit checks
 	if mc, err = c.GetCurrentContext(context.Background(), tenantIdentity, MassifHeight); err != nil {
@@ -122,7 +122,7 @@ func TestMassifCommitter_massifExtend(t *testing.T) {
 	mc.Data = g.PadWithLeafEntries(mc.Data, 3)
 
 	_, err = c.CommitContext(ctx, mc)
-	assert.NilError(t, err)
+	assert.Nil(t, err)
 
 	// Ensure what we read back passes the commit checks
 	if mc, err = c.GetCurrentContext(ctx, tenantIdentity, MassifHeight); err != nil {
@@ -133,7 +133,7 @@ func TestMassifCommitter_massifExtend(t *testing.T) {
 	// add 3 entries, leaving space for two more logs
 	mc.Data = g.PadWithLeafEntries(mc.Data, 3)
 	_, err = c.CommitContext(context.Background(), mc)
-	assert.NilError(t, err)
+	assert.Nil(t, err)
 
 	if mc, err = c.GetCurrentContext(ctx, tenantIdentity, MassifHeight); err != nil {
 		t.Fatalf("unexpected err: %v", err)
@@ -165,7 +165,7 @@ func TestMassifCommitter_massifComplete(t *testing.T) {
 	mc.Data = g.PadWithLeafEntries(mc.Data, 2)
 
 	_, err = c.CommitContext(context.Background(), mc)
-	assert.NilError(t, err)
+	assert.Nil(t, err)
 
 	// Ensure what we read back passes the commit checks
 	if mc, err = c.GetCurrentContext(context.Background(), tenantIdentity, MassifHeight); err != nil {
@@ -176,7 +176,7 @@ func TestMassifCommitter_massifComplete(t *testing.T) {
 	// add 5 entries, completing the first massif
 	mc.Data = g.PadWithLeafEntries(mc.Data, 5)
 	_, err = c.CommitContext(context.Background(), mc)
-	assert.NilError(t, err)
+	assert.Nil(t, err)
 
 	if mc, err = c.GetCurrentContext(context.Background(), tenantIdentity, MassifHeight); err != nil {
 		t.Fatalf("unexpected err: %v", err)
@@ -209,7 +209,7 @@ func TestMassifCommitter_massifoverfilsafe(t *testing.T) {
 	mc.Data = g.PadWithLeafEntries(mc.Data, 2)
 
 	_, err = c.CommitContext(context.Background(), mc)
-	assert.NilError(t, err)
+	assert.Nil(t, err)
 
 	// Ensure what we read back passes the commit checks
 	if mc, err = c.GetCurrentContext(context.Background(), tenantIdentity, MassifHeight); err != nil {
@@ -220,7 +220,7 @@ func TestMassifCommitter_massifoverfilsafe(t *testing.T) {
 	// add 3 entries, leaving space for two more logs
 	mc.Data = g.PadWithLeafEntries(mc.Data, 3)
 	_, err = c.CommitContext(context.Background(), mc)
-	assert.NilError(t, err)
+	assert.Nil(t, err)
 
 	// add 5 entries, over filling the first massif
 	mc.Data = g.PadWithLeafEntries(mc.Data, 5)
@@ -260,7 +260,7 @@ func TestMassifCommitter_threemassifs(t *testing.T) {
 	require.Equal(t, uint64(7), mc.RangeCount())
 
 	_, err = c.CommitContext(context.Background(), mc)
-	assert.NilError(t, err)
+	assert.Nil(t, err)
 
 	// --- Massif 1
 
@@ -284,7 +284,7 @@ func TestMassifCommitter_threemassifs(t *testing.T) {
 
 	// commit it
 	_, err = c.CommitContext(ctx, mc)
-	assert.NilError(t, err)
+	assert.Nil(t, err)
 
 	// --- Massif 2
 
@@ -295,7 +295,7 @@ func TestMassifCommitter_threemassifs(t *testing.T) {
 	blobPath2 := fmt.Sprintf("v1/mmrs/%s/0/massifs/%016d.log", tenantIdentity, 2)
 	assert.Equal(tc.T, mc.BlobPath, blobPath2)
 	assert.Equal(tc.T, mc.Creating, true)
-	assert.DeepEqual(tc.T, len(mc.Data)-int(mc.LogStart()), 0)
+	assert.Equal(tc.T, len(mc.Data)-int(mc.LogStart()), 0)
 	assert.Equal(tc.T, mc.Start.FirstIndex, uint64(15))
 
 	// fill it, note that this one does _not_ require an alpine node
@@ -303,7 +303,7 @@ func TestMassifCommitter_threemassifs(t *testing.T) {
 	require.Equal(t, uint64(22), mc.RangeCount())
 
 	_, err = c.CommitContext(ctx, mc)
-	assert.NilError(t, err)
+	assert.Nil(t, err)
 
 	// --- Massif 3
 	if mc, err = c.GetCurrentContext(ctx, tenantIdentity, MassifHeight); err != nil {
@@ -317,7 +317,7 @@ func TestMassifCommitter_threemassifs(t *testing.T) {
 	// *part* fill it
 	mc.Data = g.PadWithLeafEntries(mc.Data, 2)
 	_, err = c.CommitContext(ctx, mc)
-	assert.NilError(t, err)
+	assert.Nil(t, err)
 
 	if mc, err = c.GetCurrentContext(ctx, tenantIdentity, MassifHeight); err != nil {
 		t.Fatalf("unexpected err: %v", err)

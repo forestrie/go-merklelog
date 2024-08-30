@@ -1,6 +1,9 @@
 package massifs
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 const (
 	V1MMRPrefix       = "v1/mmrs"
@@ -67,6 +70,20 @@ func TenantMassifBlobPath(tenantIdentity string, number uint64) string {
 	return fmt.Sprintf(
 		"%s%s", TenantMassifPrefix(tenantIdentity), fmt.Sprintf(V1MMRBlobNameFmt, number),
 	)
+}
+
+// ReplicaRelativeMassifPath returns the blob path with the datatrails specific hosting location stripped,
+// But otherwise matches the path schema, including the tenant identity and configuration version
+func ReplicaRelativeMassifPath(tenantIdentity string, number uint32) string {
+	return strings.TrimPrefix(
+		TenantMassifBlobPath(tenantIdentity, uint64(number)), V1MMRPrefix+"/")
+}
+
+// ReplicaRelativeSealPath returns the blob path with the datatrails specific hosting location stripped,
+// But otherwise matches the path schema, including the tenant identity and configuration version
+func ReplicaRelativeSealPath(tenantIdentity string, number uint32) string {
+	return strings.TrimPrefix(
+		TenantMassifSignedRootPath(tenantIdentity, number), V1MMRPrefix+"/")
 }
 
 // TenantMassifSignedRootPath returns the appropriate blob path for the blob

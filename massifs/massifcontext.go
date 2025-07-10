@@ -426,7 +426,6 @@ func (mc *MassifContext) AddHashedLeaf(
 	// Note: assume that the whole update is discarded on error, including the index update above.
 
 	// Returns the new MMR size if the new leaf is added successfully
-	fmt.Printf("AddHashedLeaf: leaf=%x, i=%d, mi=%d\n", value, mc.RangeCount()-1, mc.Start.MassifIndex)
 	return mmr.AddHashedLeaf(mc, hasher, value)
 }
 

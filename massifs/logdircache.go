@@ -133,6 +133,12 @@ func WithDirCacheReplicaDir(replicaDir string) DirCacheOption {
 func WithDirCacheTenant(tenantIdentity string) DirCacheOption {
 	return func(o *DirCacheOptions) {
 		o.tenantIdentity = tenantIdentity
+	}
+}
+
+func WithExplicitFilePaths(tenantIdentity string) DirCacheOption {
+	return func(o *DirCacheOptions) {
+		o.tenantIdentity = tenantIdentity
 		// allow tenantDirMode in the case where the tenant identity is completely unknown
 		o.explicitFilePathMode = true
 	}

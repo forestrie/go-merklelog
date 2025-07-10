@@ -5,6 +5,7 @@ import (
 
 	"github.com/datatrails/go-datatrails-common/azblob"
 	"github.com/datatrails/go-datatrails-common/cbor"
+	"github.com/datatrails/go-datatrails-common/cose"
 )
 
 // ReaderOptions provides options for MassifReader and SignedRootReader
@@ -32,6 +33,8 @@ type ReaderOptions struct {
 
 	// Used by methods which support verifying consistency against a state from
 	// an independent trusted source.
+	checkpoint          *cose.CoseSign1Message
+	checkpointState     *MMRState
 	trustedBaseState    *MMRState
 	trustedSealerPubKey *ecdsa.PublicKey
 }
@@ -66,6 +69,13 @@ type ReaderOption func(*ReaderOptions)
 func WithSealGetter(getter SealGetter) ReaderOption {
 	return func(opts *ReaderOptions) {
 		opts.sealGetter = getter
+	}
+}
+
+func WithCheckpoint(checkpoint *cose.CoseSign1Message, state *MMRState) ReaderOption {
+	return func(opts *ReaderOptions) {
+		opts.checkpoint = checkpoint
+		opts.checkpointState = state
 	}
 }
 

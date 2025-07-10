@@ -354,6 +354,8 @@ func (mc *MassifContext) Append(value []byte) (uint64, error) {
 		return 0, ErrLogValueBadSize
 	}
 
+	fmt.Printf("mc.Append: node=%x, i=%d, mi=%d\n", value, mc.RangeCount()-1, mc.Start.MassifIndex)
+
 	// XXX: TODO: ideally we would check for over flow here. But it is awkward
 	// and log base 2 n to work out the actual limit of this context. If we want
 	// that, we would capture it in GetCurrentContext The add leaf method

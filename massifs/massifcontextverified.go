@@ -68,7 +68,7 @@ func checkedVerifiedContextOptions(baseOpts ReaderOptions, opts ...ReaderOption)
 		o(&options)
 	}
 
-	if options.sealGetter == nil {
+	if options.sealGetter == nil && options.checkpoint == nil {
 		return ReaderOptions{}, ErrSealGetterNotProvided
 	}
 
@@ -158,15 +158,22 @@ func (mc *MassifContext) verifyContext(
 	var err error
 
 	// This checks that any un-committed data is consistent with the latest seal available for the massif
+	var msg *cose.CoseSign1Message
+	var state MMRState
 
-	msg, state, err := options.sealGetter.GetSignedRoot(ctx, mc.TenantIdentity, mc.Start.MassifIndex)
-	if err != nil {
-		if IsBlobNotFound(err) {
-			return nil, fmt.Errorf(
-				"%w: failed to get seal for massif %d for tenant %s: %v",
-				ErrSealNotFound, mc.Start.MassifIndex, mc.TenantIdentity, WrapBlobNotFound(err))
+	if options.checkpoint != nil {
+		msg = options.checkpoint
+		state = *options.checkpointState
+	} else {
+		msg, state, err = options.sealGetter.GetSignedRoot(ctx, mc.TenantIdentity, mc.Start.MassifIndex)
+		if err != nil {
+			if IsBlobNotFound(err) {
+				return nil, fmt.Errorf(
+					"%w: failed to get seal for massif %d for tenant %s: %v",
+					ErrSealNotFound, mc.Start.MassifIndex, mc.TenantIdentity, WrapBlobNotFound(err))
+			}
+			return nil, err
 		}
-		return nil, err
 	}
 
 	if state.MMRSize > mc.RangeCount() {

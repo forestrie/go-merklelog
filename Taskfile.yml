@@ -1,5 +1,5 @@
 ---
-version: '3'
+version: "3"
 
 # This Taskfile represents the primary control surface for developers interacting with
 # this component.
@@ -19,9 +19,6 @@ includes:
   codequality:
     taskfile: ./taskfiles/Taskfile_codequality.yml
     dir: ./taskfiles
-  azurite:
-    taskfile: ./taskfiles/Taskfile_azurite.yml
-    dir: ./taskfiles
   gobuild:
     taskfile: ./taskfiles/Taskfile_gobuild.yml
     dir: ./taskfiles
@@ -32,7 +29,6 @@ includes:
     taskfile: ./taskfiles/Taskfile_mockery.yml
 
 tasks:
-
   build:fast:
     desc: ensure go build works for all modules
     cmds:
@@ -46,30 +42,24 @@ tasks:
   format:
     desc: formats the code correctly
     cmds:
-      - task: codequality:format 
+      - task: codequality:format
 
   lint:
     desc: lints the go code
     cmds:
-      - task: codequality:lint 
+      - task: codequality:lint
 
   vulncheck:
     desc: lints the go code
     cmds:
-      - task: codequality:vulncheck 
+      - task: codequality:vulncheck
 
   go:modules:
     desc: tidies the go modules
-    cmds: 
+    cmds:
       - task: codequality:modules
 
   test:unit:
     desc: run the unit tests
     cmds:
       - task: gotest:go:unit
-
-  test:integration:
-    desc: run the azurite integration tests
-    cmds:
-     - task: azurite:preflight
-     - task: gotest:go:azurite

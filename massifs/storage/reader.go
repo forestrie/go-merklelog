@@ -1,3 +1,4 @@
+// Package storage provides an interface for reading logs from a path based storage system
 package storage
 
 import (

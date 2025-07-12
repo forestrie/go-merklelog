@@ -23,7 +23,6 @@ var (
 // pre-pended.  The epoch is the count of times we have overflowed 40 bits
 // worth of milliseconds since the standard unix epoch. This will be 1 until Jan
 // 2038
-
 // Returns:
 //
 // An 18 character byte string, with the epoch hex value in [0:2], and the
@@ -41,7 +40,6 @@ func IDTimeHex(t time.Time) string {
 
 // IDToTimeParts performs a lossy, but accurate, conversion to seconds and sub-second nanos.
 func IDToTimeParts(id uint64) (int64, int64, []byte) {
-
 	ms := id >> snowflakeid.TimeShift
 
 	machineSeq := make([]byte, 4)
@@ -60,7 +58,6 @@ func IDTimestampFromTime(t time.Time) (uint64, uint8) {
 // The seconds are assumed to be counted from the unix epoch, and ms is
 // truncated to 999.
 func IDTimeFromUnixTime(seconds int64, ms int) (uint64, uint8) {
-
 	if ms >= 1000 {
 		ms = 999
 	}
@@ -85,7 +82,6 @@ func IDTimeFromUnixTime(seconds int64, ms int) (uint64, uint8) {
 //
 // Note: See IDTimestampBytes for description of the epoch
 func SplitIDTimestampHex(id string) (uint64, uint8, error) {
-
 	id = strings.TrimPrefix(id, "0x")
 
 	b, err := hex.DecodeString(id)

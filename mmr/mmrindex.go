@@ -5,7 +5,7 @@ import "math/bits"
 // MMRIndex returns the node index for the leaf e
 //
 // Args:
-//   - leafIndex: the leaf index, where the leaves are numbered consequtively, ignoring interior nodes.
+//   - leafIndex: the leaf index, where the leaves are numbered consecutively, ignoring interior nodes.
 //
 // Returns:
 //

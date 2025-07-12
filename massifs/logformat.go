@@ -42,7 +42,7 @@ func IndexFromBlobSize(size int) uint64 {
 	return uint64(size>>EntryByteSizeLogBase2) - 1
 }
 
-// IndexedValue returns the value bytes from log data corresponding to entry
+// IndexedLogValue returns the value bytes from log data corresponding to entry
 // index i. No range checks are performed, out of range will panic.  This
 // function assumes log data is sliced to the appropriate section for i to make
 // sense (be it a leaf index or an mmrIndex)
@@ -69,7 +69,6 @@ func TrieHeaderEnd() uint64 {
 
 // TrieDataEntryCount returns the number of items in the Trie data
 func TrieDataEntryCount(massifHeight uint8) uint64 {
-
 	// massifHeight is a zero based index
 
 	// see [mmr-math-cheatsheet.md](../../mmr-math-cheatsheet.md) for derivation

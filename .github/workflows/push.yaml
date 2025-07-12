@@ -1,19 +1,16 @@
 name: push
 
-on: [
-  pull_request,
-  workflow_dispatch
-]
+on: [pull_request, workflow_dispatch]
 
 jobs:
   build:
-    name: Quality Control
+    name: CI
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: "1.24"
           cache: false
 
       - name: Install Go quality tools
@@ -29,28 +26,15 @@ jobs:
           version: 3.x
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Code quality checks
+      - name: Bootstrap
         run: |
-          # Note: it is by design that we don't use the builder
-          task format
-          task lint
-          task vulncheck
+          task bootstrap
 
       - name: Unit tests
         run: |
           # Note: it is by design that we don't use the builder
           task test:unit
-
       - name: Integration tests
         run: |
+          # Note: it is by design that we don't use the builder
           task test:integration
-
-      - name:  Azurite logs
-        run: |
-          task azurite:logs
-
-      - name: Stop azurite
-        if: always()
-        run: |
-          task azurite:stop
-

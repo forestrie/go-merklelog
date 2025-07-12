@@ -30,8 +30,6 @@ func MassifIndexFromLeafIndex(massifHeight uint8, leafIndex uint64) uint64 {
 // MassifIndexFromMMRIndex gets the massif index of the massif that the given leaf is stored in
 //
 //	given the mmr index of the leaf.
-//
-// NOTE: if the mmrIndex is not a leaf node, then error is returned.
 func MassifIndexFromMMRIndex(massifHeight uint8, mmrIndex uint64) uint64 {
 
 	leafIndex := mmr.LeafIndex(mmrIndex)

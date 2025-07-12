@@ -12,9 +12,7 @@ import (
 	"github.com/veraison/go-cose"
 )
 
-var (
-	ErrNodeSize = errors.New("node value sizes must match the hash size")
-)
+var ErrNodeSize = errors.New("node value sizes must match the hash size")
 
 type MMRStateVersion int
 
@@ -22,7 +20,7 @@ const (
 	MMRStateVersion0 MMRStateVersion = iota // Implicit initial release version
 	MMRStateVersion1                        // Version 1 is DRAFT_00 vds =2
 	// Version2 was introduced to indicate support for MMRIVER 02.
-	// In this draft we co-ordinated a requested assignment for the vds and in
+	// In this draft we co-ordinate a requested assignment for the vds and in
 	// doing so ended up with 3 rather than 2.
 	// Note that this change _does not_ impact verification of the checkpoints.
 	// It only impacts the presigned receipts attached in the unprotected headers.
@@ -35,7 +33,7 @@ const (
 	MMRStateVersionCurrent  = MMRStateVersion2
 	VDSCoseReceiptsTag      = 395
 	VDSCoseReceiptProofsTag = 396
-	VDSMMRiver_DRAFT00      = 2
+	VDSMMRiverDRAFT00       = 2
 	VDSMMRiver              = 3
 	VDSInclusionProof       = -1
 	InclusionProofIndex     = 1
@@ -43,8 +41,8 @@ const (
 
 	// The numbers < -65535 are reserved for private use.
 	COSEPrivateStart = int64(-65535)
-	// Numbers in the private use space are organisation / implementation specific.
-	// Allocation in this range MUST be co-ordinated datatrails wide.
+	// Numbers in the private use space are organization / implementation specific.
+	// Allocation in this range MUST be co-ordinate datatrails wide.
 	// Remembering that the range is *negative* we allocate the tag by
 	// subtracting the IANA registered tag for marking COSE Receipts proof data.
 	SealPeakReceiptsLabel = COSEPrivateStart - VDSCoseReceiptProofsTag
@@ -52,7 +50,6 @@ const (
 
 // MMRState defines the details we include in our signed commitment to the head log state.
 type MMRState struct {
-
 	// Version is present in all seals from version 1. The initial release was implicity version 0.
 	Version int `cbor:"7,keyasint,omitempty"`
 
@@ -99,6 +96,38 @@ type MMRStateReceipts struct {
 	PeakReceipts [][]byte `cbor:"-65931,keyasint"`
 }
 
+type SignerOptions struct {
+	Signer cose.Signer
+	PubKey *ecdsa.PublicKey
+	// If Key is not nil, it is used to create the cose.Signer.
+	Key *ecdsa.PrivateKey
+	// If the Key is not nil, this is used as the cose.Algorithm for the Signer.
+	Alg cose.Algorithm
+}
+
+func WithECSigner(s cose.Signer, pubKey *ecdsa.PublicKey) Option {
+	return func(a any) {
+		opts, ok := a.(*SignerOptions)
+		if !ok {
+			return
+		}
+		opts.Signer = s
+		opts.PubKey = pubKey
+	}
+}
+
+func WithECSigningKey(key *ecdsa.PrivateKey, alg cose.Algorithm) Option {
+	return func(a any) {
+		opts, ok := a.(*SignerOptions)
+		if !ok {
+			return
+		}
+		opts.PubKey = &key.PublicKey
+		opts.Key = key
+		opts.Alg = alg
+	}
+}
+
 // RootSigner is used to produce a signature over an mmr log state.  This
 // signature commits to a log state, and should only be created and published
 // after checking the consistency between the last signed state and the new one.
@@ -124,8 +153,8 @@ func (rs RootSigner) Sign1(
 	keyIdentifier string,
 	publicKey *ecdsa.PublicKey,
 	subject string,
-	state MMRState, external []byte) ([]byte, error) {
-
+	state MMRState, external []byte,
+) ([]byte, error) {
 	receipts, err := rs.signEmptyPeakReceipts(coseSigner, publicKey, keyIdentifier, rs.issuer, subject, state.Peaks)
 	if err != nil {
 		return nil, err
@@ -216,7 +245,7 @@ func (rs RootSigner) Sign1(
 // It is true, due to low update frequency, that many may be copies of earlier
 // receipts, but the locality here means consumers only need to hit one blob and
 // in doing so reveal less about their area of interest.
-func (c *RootSigner) signEmptyPeakReceipts(
+func (rs *RootSigner) signEmptyPeakReceipts(
 	coseSigner cose.Signer,
 	publicKey *ecdsa.PublicKey,
 	keyIdentifier string,
@@ -224,11 +253,10 @@ func (c *RootSigner) signEmptyPeakReceipts(
 	subject string,
 	peaks [][]byte,
 ) ([][]byte, error) {
-
 	receipts := make([][]byte, len(peaks))
 
 	for i, peak := range peaks {
-		receipt, err := c.signEmptyPeakReceipt(coseSigner, publicKey, keyIdentifier, issuer, subject, peak)
+		receipt, err := rs.signEmptyPeakReceipt(coseSigner, publicKey, keyIdentifier, issuer, subject, peak)
 		if err != nil {
 			return nil, err
 		}
@@ -259,7 +287,6 @@ func (rs RootSigner) signEmptyPeakReceipt(
 	// The bytes of a peak, which an mmr node which is a member of an accumulator for one or more tree states.
 	peak []byte,
 ) ([]byte, error) {
-
 	if len(peak) != 32 {
 		return nil, fmt.Errorf("%w: peak must be 32 bytes, got %d", ErrNodeSize, len(peak))
 	}
@@ -305,37 +332,22 @@ func (rs RootSigner) signEmptyPeakReceipt(
 }
 
 func NewRootSignerCodec() (commoncbor.CBORCodec, error) {
-	codec, err := commoncbor.NewCBORCodec(encOptions, decOptions)
-	if err != nil {
-		return commoncbor.CBORCodec{}, err
-	}
-	return codec, nil
+	return NewCBORCodec()
 }
-
-var (
-	encOptions = commoncbor.NewDeterministicEncOpts()
-	decOptions = cbor.DecOptions{
-		DupMapKey:   cbor.DupMapKeyEnforcedAPF, // (default) duplicated key not allowed
-		IndefLength: cbor.IndefLengthForbidden, // (default) no streaming
-		// override the default decoding behaviour for unsigned integers to retain the sign
-		IntDec: cbor.IntDecConvertNone, // decode CBOR uint/int to Go int64
-		TagsMd: cbor.TagsForbidden,     // (default) no tags
-	}
-)
 
 // CheckpointDecOptions returns the decoding options compatible with the RootSigner
 // With these options the sign is always retained
 // The options align with the cbor defaults, except for the handling of unsigned integers.
 func CheckpointDecOptions() cbor.DecOptions {
-	return decOptions
+	return DecOptions
 }
 
 // CheckpointEncOptions returns the decoding options compatible with the RootSigner
 // These options align with the cbor defaults
 func CheckpointEncOptions() cbor.EncOptions {
-	return encOptions
+	return EncOptions
 }
 
-func newCheckpointDecOptions() []commoncose.SignOption {
-	return []commoncose.SignOption{commoncose.WithDecOptions(decOptions)}
+func NewCheckpointDecOptions() []commoncose.SignOption {
+	return []commoncose.SignOption{commoncose.WithDecOptions(DecOptions)}
 }

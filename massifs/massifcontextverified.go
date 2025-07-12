@@ -2,40 +2,13 @@ package massifs
 
 import (
 	"context"
-	"crypto"
 	"crypto/sha256"
-	"errors"
 	"fmt"
 
-	"github.com/datatrails/go-datatrails-common/cose"
+	commoncose "github.com/datatrails/go-datatrails-common/cose"
 	"github.com/datatrails/go-datatrails-merklelog/mmr"
 )
 
-// Support for an extension to the MassifContext type that provides for getting
-// massif and verifying it at the same time. The primary caller interface is
-// GetVerifiedMassif, and all the other methods are in support of that.  Where
-// possible, and useful, the methods are made available directly on the
-// MassifContext type itself
-
-var (
-	ErrStateSizeBeforeMassifStart = errors.New("the massif index in the mmr state must at least cover the start of the massif")
-	ErrStateSizeExceedsData       = errors.New("There is insufficient data in the massif context to generate a consistency proof against the provided state")
-	ErrSealGetterNotProvided      = errors.New("a seal getter was required but not provided")
-	ErrCBORCodecNotProvided       = errors.New("a CBOR codec was required but not provided")
-	ErrSealNotFound               = errors.New("seal not found")
-	ErrSealVerifyFailed           = errors.New("the seal signature verification failed")
-	ErrGeneratingConsistencyProof = errors.New("error while  creating a consistency proof")
-	ErrConsistencyProofCheck      = errors.New("verification error while checking a consistency proof")
-	ErrInconsistentState          = errors.New("verification failed for a consistency proof")
-	ErrRemoteSealKeyMatchFailed   = errors.New("the provided public key did not match the remote sealing key")
-	ErrTenantIdUnknown            = errors.New("the method requires that the tenant ientity is known on the context")
-	ErrTenantIdInconsistent       = errors.New("the tenant identity on the context does not match the tenant identity provided")
-)
-
-// VerifiedContext describes a verified massif context
-//
-// Methods which both read a massif and then require that the massif's associated
-// seal can be verified, against the read data, should return a VerifiedContext.
 type VerifiedContext struct {
 	MassifContext
 
@@ -45,7 +18,7 @@ type VerifiedContext struct {
 	// obtained it from a store they trust. Where the expected public key has
 	// been provided it is required to match the key found on the seal from the
 	// store (which may be local or remote).
-	Sign1Message cose.CoseSign1Message
+	Sign1Message commoncose.CoseSign1Message
 	// MMRState describes the sealed (confirmed) range of the massif. For a verified massif
 	// context it is guaranteed to refer to the portion of the log identified by
 	// massifIndex, but the committed data may extend past the data confirmed by
@@ -61,120 +34,14 @@ type VerifiedContext struct {
 	ConsistentRoots [][]byte
 }
 
-// checkedVerifiedContextOptions checks the options provided satisfy the common requirements of the reader methods
-func checkedVerifiedContextOptions(baseOpts ReaderOptions, opts ...ReaderOption) (ReaderOptions, error) {
-	options := ReaderOptionsCopy(baseOpts)
-	for _, o := range opts {
-		o(&options)
-	}
-
-	if options.sealGetter == nil && options.checkpoint == nil {
-		return ReaderOptions{}, ErrSealGetterNotProvided
-	}
-
-	if options.codec == nil {
-		return ReaderOptions{}, ErrCBORCodecNotProvided
-	}
-	return options, nil
-}
-
-// GetHeadVerifiedContext gets the massif and its seal and then verifies the massif
-// data against the seal. If the caller provides the expected public key, the
-// public key on the seal is required to match
-func (mr *MassifReader) GetHeadVerifiedContext(
-	ctx context.Context, tenantIdentity string,
-	opts ...ReaderOption,
-) (*VerifiedContext, error) {
-
-	options, err := checkedVerifiedContextOptions(mr.opts, opts...)
-	if err != nil {
-		return nil, err
-	}
-
-	mc, err := mr.GetHeadMassif(ctx, tenantIdentity, opts...)
-	if err != nil {
-		return nil, err
-	}
-
-	return mc.verifyContext(ctx, options)
-}
-
-// GetVerifiedContext gets the massif and its seal and then verifies the massif
-// data against the seal. If the caller provides the expected public key, the
-// public key on the seal is required to match
-func (mr *MassifReader) GetVerifiedContext(
-	ctx context.Context, tenantIdentity string, massifIndex uint64,
-	opts ...ReaderOption,
-) (*VerifiedContext, error) {
-
-	options, err := checkedVerifiedContextOptions(mr.opts, opts...)
-	if err != nil {
-		return nil, err
-	}
-
-	mc, err := mr.GetMassif(ctx, tenantIdentity, massifIndex, opts...)
-	if err != nil {
-		return nil, err
-	}
-
-	return mc.verifyContext(ctx, options)
-}
-
-// VerifyContext verifies an arbitrary context and returns a verified context if this succeeds.
-// This performs the same checks as GetVerifiedContext
-func (mr *MassifReader) VerifyContext(
-	ctx context.Context, mc MassifContext,
-	opts ...ReaderOption,
-) (*VerifiedContext, error) {
-	options, err := checkedVerifiedContextOptions(mr.opts, opts...)
-	if err != nil {
-		return nil, err
-	}
-
-	return mc.verifyContext(ctx, options)
-}
-
-// VerifyContext verifies the context and returns a verified context if this succeeds.
-func (mc *MassifContext) VerifyContext(
-	ctx context.Context,
-	opts ...ReaderOption,
-) (*VerifiedContext, error) {
-
-	options, err := checkedVerifiedContextOptions(ReaderOptions{}, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return mc.verifyContext(ctx, options)
-}
-
-// verifyContext verifies the log data in the context is consistent with its seal
+// VerifyContext verifies the log data in the context is consistent with its seal
 // optionally also checks consistency against a provided state from a trusted source
 // Returns:
 //   - a VerifiedContext which references the dynamically allocated aspects of this context
-func (mc *MassifContext) verifyContext(
-	ctx context.Context, options ReaderOptions,
+func (mc *MassifContext) VerifyContext(
+	ctx context.Context, options VerifyOptions,
 ) (*VerifiedContext, error) {
-
-	var err error
-
-	// This checks that any un-committed data is consistent with the latest seal available for the massif
-	var msg *cose.CoseSign1Message
-	var state MMRState
-
-	if options.checkpoint != nil {
-		msg = options.checkpoint
-		state = *options.checkpointState
-	} else {
-		msg, state, err = options.sealGetter.GetSignedRoot(ctx, mc.TenantIdentity, mc.Start.MassifIndex)
-		if err != nil {
-			if IsBlobNotFound(err) {
-				return nil, fmt.Errorf(
-					"%w: failed to get seal for massif %d for tenant %s: %v",
-					ErrSealNotFound, mc.Start.MassifIndex, mc.TenantIdentity, WrapBlobNotFound(err))
-			}
-			return nil, err
-		}
-	}
+	state := options.Check.MMRState
 
 	if state.MMRSize > mc.RangeCount() {
 		return nil, fmt.Errorf("%w: MMR size %d < %d", ErrStateSizeExceedsData, mc.RangeCount(), state.MMRSize)
@@ -184,16 +51,17 @@ func (mc *MassifContext) verifyContext(
 	case int(MMRStateVersion1):
 		fallthrough
 	case int(MMRStateVersion2):
-		return mc.verifyContextV1V2(msg, state, options)
+		return mc.verifyContextV1V2(&options.Check.Sign1Message, state, options)
 	case int(MMRStateVersion0):
-		return mc.verifyContextV0(msg, state, options)
+		return mc.verifyContextV0(&options.Check.Sign1Message, state, options)
+	// we don't support v0 anymore
+	default:
+		return nil, fmt.Errorf("unsupported MMR state version %d", state.Version)
 	}
-	return nil, fmt.Errorf("unsupported MMR state version %d", state.Version)
-
 }
 
 func (mc *MassifContext) verifyContextV1V2(
-	msg *cose.CoseSign1Message, state MMRState, options ReaderOptions,
+	msg *commoncose.CoseSign1Message, state MMRState, options VerifyOptions,
 ) (*VerifiedContext, error) {
 	var ok bool
 	var err error
@@ -213,22 +81,25 @@ func (mc *MassifContext) verifyContextV1V2(
 		return nil, err
 	}
 
-	pubKeyProvider, err := mc.sealPublicKeyProvider(msg, options)
-	if err != nil {
-		return nil, err
-	}
-
 	// Ensure the peaks we read from the store are the ones that were signed.
 	// Otherwise we can get caught out by the store tampered after the seal was
 	// created. Of course the seal itself could have been replaced, but at that
 	// point the only defense is an indpendent replica.
-	err = VerifySignedCheckPoint(
-		*options.codec, pubKeyProvider, msg, state, nil,
-	)
+
+	msg.Payload, err = options.CBORCodec.MarshalCBOR(state)
+	if err != nil {
+		return nil, err
+	}
+
+	if options.COSEVerifier != nil {
+		err = msg.Verify(nil, options.COSEVerifier)
+	} else {
+		err = msg.VerifyWithCWTPublicKey(nil)
+	}
 	if err != nil {
 		return nil, fmt.Errorf(
-			"%w: failed to verify seal for massif %d for tenant %s: %v",
-			ErrSealVerifyFailed, mc.Start.MassifIndex, mc.TenantIdentity, err)
+			"%w: failed to verify checkpoint for massif %d: %v",
+			ErrSealVerifyFailed, mc.Start.MassifIndex, err)
 	}
 
 	// This verifies the peaks read from mmrSizeA are consistent with mmrSizeB.
@@ -236,13 +107,13 @@ func (mc *MassifContext) verifyContextV1V2(
 		mc, sha256.New(), state.MMRSize, mc.RangeCount(), state.Peaks)
 	if err != nil {
 		return nil, fmt.Errorf(
-			"%w: error verifying accumulator state from massif %d for tenant %s",
-			err, mc.Start.MassifIndex, mc.TenantIdentity)
+			"%w: error verifying accumulator state from massif %d",
+			err, mc.Start.MassifIndex)
 	}
 	if !ok {
 		// We don't expect false without error.
-		return nil, fmt.Errorf("%w: failed to verify accumulator state massif %d for tenant %s",
-			mmr.ErrConsistencyCheck, mc.Start.MassifIndex, mc.TenantIdentity)
+		return nil, fmt.Errorf("%w: failed to verify accumulator state massif %d",
+			mmr.ErrConsistencyCheck, mc.Start.MassifIndex)
 	}
 
 	// If the caller has provided a trusted base state, also verify against
@@ -250,17 +121,17 @@ func (mc *MassifContext) verifyContextV1V2(
 	// saved a previously verified state in a local store, and they want to
 	// check the remote log is consistent with the log portion they have locally
 	// before replicating the new data.
-	if options.trustedBaseState != nil {
+	if options.TrustedBaseState != nil {
 
-		if options.trustedBaseState.Version == int(MMRStateVersion0) {
+		if options.TrustedBaseState.Version == int(MMRStateVersion0) {
 			return nil, fmt.Errorf("unsupported MMR state version 0 (you should promote to v1 on demand using mmr.PeakHashes)")
 		}
 
 		ok, _, err = mmr.CheckConsistency(
 			mc, sha256.New(),
-			options.trustedBaseState.MMRSize,
+			options.TrustedBaseState.MMRSize,
 			mc.RangeCount(),
-			options.trustedBaseState.Peaks)
+			options.TrustedBaseState.Peaks)
 		if err != nil {
 			return nil, err
 		}
@@ -277,30 +148,4 @@ func (mc *MassifContext) verifyContextV1V2(
 		MMRState:        state,
 		ConsistentRoots: peaksB,
 	}, nil
-}
-
-func (mc *MassifContext) sealPublicKeyProvider(
-	msg *cose.CoseSign1Message, options ReaderOptions,
-) (*cose.CWTPublicKeyProvider, error) {
-
-	var err error
-
-	// NOTICE: The verification uses the public key that is provided on the
-	// message.  If the caller wants to ensure the massif is signed by the
-	// expected key then they must obtain a copy of the public key from a source
-	// they trust and supply it as an option.
-	pubKeyProvider := cose.NewCWTPublicKeyProvider(msg)
-	if options.trustedSealerPubKey == nil {
-		return pubKeyProvider, nil
-	}
-
-	var remotePub crypto.PublicKey
-	remotePub, _, err = pubKeyProvider.PublicKey()
-	if err != nil {
-		return nil, err
-	}
-	if !options.trustedSealerPubKey.Equal(remotePub) {
-		return nil, ErrRemoteSealKeyMatchFailed
-	}
-	return pubKeyProvider, nil
 }

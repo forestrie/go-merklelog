@@ -3,7 +3,6 @@ package massifs
 import (
 	"crypto/sha256"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"hash"
 	"maps"
@@ -13,18 +12,9 @@ import (
 	"github.com/datatrails/go-datatrails-merklelog/mmr"
 )
 
-var (
-	ErrGetIndexUnavailable      = errors.New("requested mmr index not available")
-	ErrBeforeFirstLeaf          = errors.New("the requested leaf index is below the first leaf indexed in the blob")
-	ErrMassifDataLengthInvalid  = errors.New("the length of data is incorrect given the provided mmr parameters")
-	ErrLeafRange                = errors.New("the requested leaf is not in the blob (and is *after* the first leaf indexed)")
-	ErrMassifFull               = errors.New("the current massif is full")
-	ErrAncestorStackUnderfilled = errors.New("the ancestor stack data is to short to be valid")
-	ErrAncestorStackInvalid     = errors.New("the ancestor stack is invalid due to bad header information")
-	ErrMissingPrevBlobLastID    = errors.New("expected snowflake id carry from previous blob not available")
-	ErrIndexNotInMassif         = errors.New("mmr index not in the massif")
-	ErrStateRootMissing         = errors.New("the root field of a state struct was nil when it should have been provided")
-)
+type MassifData struct {
+	Data []byte
+}
 
 // MassifContext enables appending to the log
 //
@@ -56,7 +46,7 @@ var (
 //	   1   2 4   5| 8   9 11   12| 16   17 19 20
 //	   0   1 3   4| 7   8 10   11| 15   16 18 19
 //	   | massif 0 |  massif 1 .  | massif 2 ....>
-
+//
 //	1 << 3 - 1 << 2 = 8 - 4 = 4
 //	1 << 4 - 1 << 3 = 16 - 8 = 8
 //
@@ -71,8 +61,7 @@ var (
 // Massif Root Index      = (1 << h) - 2
 // Massif Last Leaf Index = (1 << h) - h - 1
 type MassifContext struct {
-	LogBlobContext
-	TenantIdentity string
+	MassifData
 
 	// This context deals with the three different massif states:
 	// 1. no blobs exist                                   -> creating = true
@@ -93,15 +82,15 @@ type MassifContext struct {
 	// be needed. Initialized in AddLeafHash and only valid during that call
 	nextAncestor int
 
-	peakStackMap map[uint64]int
+	PeakStackMap map[uint64]int
 }
 
 func (mc *MassifContext) CopyPeakStack() map[uint64]int {
-	if mc.peakStackMap == nil {
+	if mc.PeakStackMap == nil {
 		return nil
 	}
 	m := map[uint64]int{}
-	maps.Copy(m, mc.peakStackMap)
+	maps.Copy(m, mc.PeakStackMap)
 	return m
 }
 
@@ -110,8 +99,8 @@ func (mc *MassifContext) CopyPeakStack() map[uint64]int {
 // with how GetRoot accesses the store. The default configuration works only for
 // how leaf addition accesses the stack.
 func (mc *MassifContext) CreatePeakStackMap() error {
-	mc.peakStackMap = PeakStackMap(mc.Start.MassifHeight, mc.Start.FirstIndex)
-	if mc.peakStackMap == nil {
+	mc.PeakStackMap = PeakStackMap(mc.Start.MassifHeight, mc.Start.FirstIndex)
+	if mc.PeakStackMap == nil {
 		return fmt.Errorf("invalid massif height or first index in start record")
 	}
 	return nil
@@ -137,11 +126,12 @@ func (mc *MassifContext) StartNextMassif() error {
 		// massif blob, so we can use it to compute the first index of the new
 		// blob we are about to create.
 		mc.Start.MassifIndex+1, mc.RangeCount())
-	SetFirstIndex(nextStart.FirstIndex, mc.Tags)
+
 	nextData, err := nextStart.MarshalBinary()
 	if err != nil {
 		return err
 	}
+	// NOTICE: At this point, provider implementations would read the new tag from the start header.
 
 	// We pre-allocate zero filled data for the index. When the blob is
 	// complete, the index will be fully populated. We store a trie key in it,
@@ -173,7 +163,6 @@ func (mc MassifContext) InitIndexData() []byte {
 // NextPeakStack accepts the peak stack from the previous massif and returns the
 // start data and stack for the current massif start details.
 func (mc MassifContext) NextPeakStack() ([]byte, error) {
-
 	var err error
 
 	// Remembering that the 'push' to the stack is always the last log entry so
@@ -254,7 +243,6 @@ func (mc *MassifContext) Get(i uint64) ([]byte, error) {
 
 // GetTrieEntry gets the trie entry given the mmrIndex of its corresponding leaf node.
 func (mc MassifContext) GetTrieEntry(mmrIndex uint64) ([]byte, error) {
-
 	// Note: mmrIndex identifies an arbitrary node, so LeafIndex is necessary
 	trieIndex := mmr.LeafIndex(mmrIndex)
 
@@ -268,7 +256,6 @@ func (mc MassifContext) GetTrieEntry(mmrIndex uint64) ([]byte, error) {
 
 // GetTrieKey gets the trie key given the mmrIndex of the trie entries corresponding leaf node.
 func (mc MassifContext) GetTrieKey(mmrIndex uint64) ([]byte, error) {
-
 	// Note: mmrIndex identifies an arbitrary node, so LeafIndex is necessary
 	trieIndex := mmr.LeafIndex(mmrIndex)
 
@@ -324,8 +311,8 @@ func (mc *MassifContext) GetStackedPeak(peakStackIndex int) ([]byte, error) {
 }
 
 func (mc *MassifContext) peakStackIndex(i uint64) (int, error) {
-	if mc.peakStackMap != nil {
-		peakIndex, ok := mc.peakStackMap[i]
+	if mc.PeakStackMap != nil {
+		peakIndex, ok := mc.PeakStackMap[i]
 		if !ok {
 			return 0, fmt.Errorf("%w: %d is not in the peak map", ErrAncestorStackInvalid, i)
 		}
@@ -333,7 +320,7 @@ func (mc *MassifContext) peakStackIndex(i uint64) (int, error) {
 	}
 
 	// Because the peakStackMap is relatively expensive to create, we only use
-	// it for the confirmer. When adding nodes, we rely on the known structure
+	// it for the confirmor. When adding nodes, we rely on the known structure
 	// of the stack and the known order nodes will be asked for.  The ancestor
 	// stack is maintained so that the nodes we need, when adding leaves, are
 	// listed in the order they will be asked for. And we initialize
@@ -349,7 +336,6 @@ func (mc *MassifContext) peakStackIndex(i uint64) (int, error) {
 // Append adds the leaf value to the log and returns the MMR index of the _next_ node
 // This method satisfies the Append method of the MMR NodeAdder interface
 func (mc *MassifContext) Append(value []byte) (uint64, error) {
-
 	if len(value) != ValueBytes {
 		return 0, ErrLogValueBadSize
 	}
@@ -358,7 +344,7 @@ func (mc *MassifContext) Append(value []byte) (uint64, error) {
 
 	// XXX: TODO: ideally we would check for over flow here. But it is awkward
 	// and log base 2 n to work out the actual limit of this context. If we want
-	// that, we would capture it in GetCurrentContext The add leaf method
+	// that, we would capture it in GetAppendContext The add leaf method
 	// pre-flight checks on the highest leaf index which can be computed
 	// directly at any time. Over flow after that check is only possible if our
 	// basic mmr add is bust and that is extensively covered by unit tests.
@@ -380,16 +366,15 @@ func (mc *MassifContext) AddHashedLeaf(
 	hasher hash.Hash,
 	idTimestamp uint64,
 	extraBytes []byte,
-	logId []byte,
-	appId []byte,
+	logID []byte,
+	appID []byte,
 	value []byte,
 ) (uint64, error) {
-
 	if len(value) != ValueBytes {
 		return 0, ErrLogValueBadSize
 	}
 
-	trieKey := NewTrieKey(KeyTypeApplicationContent, logId, appId)
+	trieKey := NewTrieKey(KeyTypeApplicationContent, logID, appID)
 	if len(trieKey) != TrieKeyBytes {
 		return 0, ErrIndexEntryBadSize
 	}
@@ -416,12 +401,11 @@ func (mc *MassifContext) AddHashedLeaf(
 	SetTrieEntry(mc.Data, mc.IndexStart(), nextLeafIndex, idTimestamp, extraBytes, trieKey)
 
 	// Save the last id added so that we can guarantee monotonicity (and hence uniqueness for the tenant)
-	mc.setLastIdTimestamp(idTimestamp)
-	// Save the last id added so that we can guarantee monotonicity (and hence
-	// uniqueness for the tenant) We  also set the blob tag lastid so that the
-	// sealer has an efficient way to get the next batch of logs that need
-	// sealing.
-	mc.setLastIDTimestampTag(idTimestamp)
+	mc.setLastIDTimestamp(idTimestamp)
+
+	// provider implementations based on object storage may, and typically
+	// *should* set a tag on the storage object to make the lastid indexed.
+	// And make appropriate optimistic concurrency arrangements.
 
 	// Note: assume that the whole update is discarded on error, including the index update above.
 
@@ -439,8 +423,8 @@ func (mc *MassifContext) AddHashedLeaf(
 //   - the latest accumulator on success
 //   - an error otherwise (the returned accumulator is nil)
 func (mc *MassifContext) CheckConsistency(
-	baseState MMRState) ([][]byte, error) {
-
+	baseState MMRState,
+) ([][]byte, error) {
 	if baseState.Peaks == nil {
 		return nil, ErrStateRootMissing
 	}
@@ -464,30 +448,33 @@ func (mc *MassifContext) CheckConsistency(
 		mc, sha256.New(), baseState.MMRSize, mmrSizeCurrent, baseState.Peaks)
 	if err != nil {
 		return nil,
-			fmt.Errorf("%w: proof verification error: err=%s, tenant=%s, massif=%d",
+			fmt.Errorf("%w: proof verification error: err=%s, massif=%d",
 				ErrConsistencyProofCheck,
-				err.Error(), mc.TenantIdentity, mc.Start.MassifIndex)
+				err.Error(), mc.Start.MassifIndex)
 	}
 	if !ok {
 		return nil,
-			fmt.Errorf("%w: proof verification check tenant=%s, massif=%d",
+			fmt.Errorf("%w: proof verification check, massif=%d",
 				ErrInconsistentState,
-				mc.TenantIdentity, mc.Start.MassifIndex)
+				mc.Start.MassifIndex)
 	}
 
 	return peaksB, nil
 }
 
-// setLastIdTimestamp must be called after A
-func (mc *MassifContext) setLastIdTimestamp(idTimestamp uint64) {
+// setLastIDTimestamp must be called after A
+func (mc *MassifContext) setLastIDTimestamp(idTimestamp uint64) {
 	mc.Start.LastID = idTimestamp
 	// Note: must 'write through' to the data, so commit only has to put the
 	// bytes and doesn't care about the details of the format and its maintenance
 	binary.BigEndian.PutUint64(mc.Data[MassifStartKeyLastIDFirstByte:MassifStartKeyLastIDEnd], idTimestamp)
 }
 
-func (mc *MassifContext) setLastIDTimestampTag(id uint64) {
-	mc.Tags[TagKeyLastID] = IDTimestampToHex(id, uint8(mc.Start.CommitmentEpoch))
+// GetLastIDTimestamp returns the idTimestamp of the last entry in the log
+// Note that this reads directly from the massif start data
+func (mc *MassifContext) GetLastIDTimestamp() uint64 {
+	idTimestamp := binary.BigEndian.Uint64(mc.Data[MassifStartKeyLastIDFirstByte:MassifStartKeyLastIDEnd])
+	return idTimestamp
 }
 
 // GetAncestorPeakStack returns the stack of ancestor peaks accumulated and
@@ -497,7 +484,6 @@ func (mc *MassifContext) setLastIDTimestampTag(id uint64) {
 // considered to have been 'pushed' on the stack and should be copied forward as
 // the new accumulated stack head.
 func (mc MassifContext) GetAncestorPeakStack() ([]byte, error) {
-
 	peakStackStart := mc.PeakStackStart()
 	logStart := mc.LogStart()
 	if peakStackStart == logStart {
@@ -522,13 +508,12 @@ func (mc MassifContext) GetAncestorPeakStack() ([]byte, error) {
 }
 
 func (mc MassifContext) LastCommitUnixMS(idTimestampEpoch uint8) (int64, error) {
-	id := mc.GetLastIdTimestamp()
+	id := mc.GetLastIDTimestamp()
 	return snowflakeid.IDUnixMilli(id, idTimestampEpoch)
 }
 
 // GetMassifLeafIndex returns the leafIndex into the whole log relative to the start of the massif leaf index.
 func (mc MassifContext) GetMassifLeafIndex(leafIndex uint64) (uint64, error) {
-
 	// Note: FirstIndex is also the MMRSize at the end of the previous massif, so LeafCount is used.
 	// similarly RangeCount (below) will always return a valid MMRSize
 	firstLeafIndex := mmr.LeafCount(mc.Start.FirstIndex)
@@ -544,25 +529,18 @@ func (mc MassifContext) GetMassifLeafIndex(leafIndex uint64) (uint64, error) {
 
 // GetMassifTrieIndex returns the trieIndex into the whole log relative to the start of the massif trie index.
 func (mc MassifContext) GetMassifTrieIndex(trieIndex uint64) (uint64, error) {
-
 	// trie index is equivalent to leaf index, so just get the leaf index
 	return mc.GetMassifLeafIndex(trieIndex)
 }
 
-// GetTrieIdTimestamp returns the idTimestamp from the trieEntry, for the identified trie index.
-func (mc MassifContext) GetTrieIdTimestamp(trieIndex uint64) ([]byte, error) {
+// GetTrieIDTimestamp returns the idTimestamp from the trieEntry, for the identified trie index.
+func (mc MassifContext) GetTrieIDTimestamp(trieIndex uint64) ([]byte, error) {
 	return GetIdtimestamp(mc.Data, mc.IndexStart(), trieIndex), nil
-}
-
-// GetLastIdTimestamp returns the idTimestamp of the last entry in the log
-func (mc MassifContext) GetLastIdTimestamp() uint64 {
-	return mc.Start.LastID
 }
 
 // MassifLeafCount returns the number of leaves in the current blob (If you want
 // the number of leaves in the entire mmr call mmr.LeafCount directly)
 func (mc MassifContext) MassifLeafCount() uint64 {
-
 	// Get the count of leaves in the entire mmr, RangeCount always returns a valid MMRSize
 	count := mmr.LeafCount(mc.RangeCount())
 	// Subtract the number of leaves in the mmr defined by the end of the last
@@ -571,16 +549,18 @@ func (mc MassifContext) MassifLeafCount() uint64 {
 	return count - mmr.LeafCount(mc.Start.FirstIndex)
 }
 
+// FixedHeaderEnd returns the end of the fixed header
 // TODO: deprecate/remove the use of these methods
 func (mc MassifContext) FixedHeaderEnd() uint64 {
 	return FixedHeaderEnd()
 }
 
+// IndexHeaderStart returns the start of the bytes reserved for the index
 func (mc MassifContext) IndexHeaderStart() uint64 {
 	return TrieHeaderStart()
 }
 
-// IndexHeaderEhd returns the end of the bytes reserved for the index header.
+// IndexHeaderEnd returns the end of the bytes reserved for the index header.
 // Currently, nothing is stored in this.
 // XXX: TODO: Consider removing the field all together
 func (mc MassifContext) IndexHeaderEnd() uint64 {

@@ -27,6 +27,11 @@ type SealedState struct {
 	MMRState     MMRState
 }
 
+type Checkpoint struct {
+	Sign1Message cose.CoseSign1Message
+	MMRState     MMRState
+}
+
 // SignedRootReader provides a context for reading the signed tree head associated with a massif
 // Note: the acronym is due to RFC 9162
 type SignedRootReader struct {

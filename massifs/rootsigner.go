@@ -12,9 +12,7 @@ import (
 	"github.com/veraison/go-cose"
 )
 
-var (
-	ErrNodeSize = errors.New("node value sizes must match the hash size")
-)
+var ErrNodeSize = errors.New("node value sizes must match the hash size")
 
 type MMRStateVersion int
 
@@ -35,7 +33,7 @@ const (
 	MMRStateVersionCurrent  = MMRStateVersion2
 	VDSCoseReceiptsTag      = 395
 	VDSCoseReceiptProofsTag = 396
-	VDSMMRiver_DRAFT00      = 2
+	VDSMMRiverDRAFT00       = 2
 	VDSMMRiver              = 3
 	VDSInclusionProof       = -1
 	InclusionProofIndex     = 1
@@ -52,7 +50,6 @@ const (
 
 // MMRState defines the details we include in our signed commitment to the head log state.
 type MMRState struct {
-
 	// Version is present in all seals from version 1. The initial release was implicity version 0.
 	Version int `cbor:"7,keyasint,omitempty"`
 
@@ -124,8 +121,8 @@ func (rs RootSigner) Sign1(
 	keyIdentifier string,
 	publicKey *ecdsa.PublicKey,
 	subject string,
-	state MMRState, external []byte) ([]byte, error) {
-
+	state MMRState, external []byte,
+) ([]byte, error) {
 	receipts, err := rs.signEmptyPeakReceipts(coseSigner, publicKey, keyIdentifier, rs.issuer, subject, state.Peaks)
 	if err != nil {
 		return nil, err
@@ -216,7 +213,7 @@ func (rs RootSigner) Sign1(
 // It is true, due to low update frequency, that many may be copies of earlier
 // receipts, but the locality here means consumers only need to hit one blob and
 // in doing so reveal less about their area of interest.
-func (c *RootSigner) signEmptyPeakReceipts(
+func (rs *RootSigner) signEmptyPeakReceipts(
 	coseSigner cose.Signer,
 	publicKey *ecdsa.PublicKey,
 	keyIdentifier string,
@@ -224,11 +221,10 @@ func (c *RootSigner) signEmptyPeakReceipts(
 	subject string,
 	peaks [][]byte,
 ) ([][]byte, error) {
-
 	receipts := make([][]byte, len(peaks))
 
 	for i, peak := range peaks {
-		receipt, err := c.signEmptyPeakReceipt(coseSigner, publicKey, keyIdentifier, issuer, subject, peak)
+		receipt, err := rs.signEmptyPeakReceipt(coseSigner, publicKey, keyIdentifier, issuer, subject, peak)
 		if err != nil {
 			return nil, err
 		}
@@ -259,7 +255,6 @@ func (rs RootSigner) signEmptyPeakReceipt(
 	// The bytes of a peak, which an mmr node which is a member of an accumulator for one or more tree states.
 	peak []byte,
 ) ([]byte, error) {
-
 	if len(peak) != 32 {
 		return nil, fmt.Errorf("%w: peak must be 32 bytes, got %d", ErrNodeSize, len(peak))
 	}

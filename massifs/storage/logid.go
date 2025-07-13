@@ -1,3 +1,4 @@
 package storage
 
-type LogId []byte
+type LogID []byte
+

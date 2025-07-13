@@ -1,6 +1,7 @@
 package massifs
 
 import (
+	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"testing"
@@ -8,12 +9,24 @@ import (
 	commoncose "github.com/datatrails/go-datatrails-common/cose"
 	_ "github.com/fxamacker/cbor/v2"
 	"github.com/veraison/go-cose"
-	_ "github.com/veraison/go-cose"
 
 	"github.com/datatrails/go-datatrails-common/logger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestGenerateECKey(t *testing.T, curve elliptic.Curve) ecdsa.PrivateKey {
+	privateKey, err := ecdsa.GenerateKey(curve, rand.Reader)
+	require.NoError(t, err)
+	return *privateKey
+}
+
+func TestNewRootSigner(t *testing.T, issuer string) RootSigner {
+	cborCodec, err := NewRootSignerCodec()
+	require.NoError(t, err)
+	rs := NewRootSigner(issuer, cborCodec)
+	return rs
+}
 
 // TestCoseSign1_UnprotectedEncDec just checks our asumptions about how to encode and decode
 // nested cose messages in the unprotected headers of a cose sign1 message.
@@ -47,7 +60,6 @@ func TestCoseSign1_UnprotectedEncDec(t *testing.T) {
 	}
 
 	mustSignMessage := func(payload []byte, headers cose.Headers) []byte {
-
 		headers.Protected[commoncose.HeaderLabelCWTClaims] = commoncose.NewCNFClaim(
 			"test-issuer", "test-subject", "test-key", coseSigner.Algorithm(),
 			key.PublicKey,
@@ -84,7 +96,6 @@ func TestCoseSign1_UnprotectedEncDec(t *testing.T) {
 	}
 
 	testDecodeSingleNestedVerify := func(encoded []byte, t *testing.T) {
-
 		var err error
 		var decoded *commoncose.CoseSign1Message
 		decoded, err = commoncose.NewCoseSign1MessageFromCBOR(encoded)
@@ -107,11 +118,9 @@ func TestCoseSign1_UnprotectedEncDec(t *testing.T) {
 		assert.NoError(t, err)
 		err = verifyDecoded(decoded)
 		assert.NoError(t, err)
-		return
 	}
 
 	testDecodeArrayOfNestedVerify := func(encoded []byte, t *testing.T) {
-
 		var err error
 		var decoded *commoncose.CoseSign1Message
 		decoded, err = commoncose.NewCoseSign1MessageFromCBOR(encoded)
@@ -160,17 +169,18 @@ func TestCoseSign1_UnprotectedEncDec(t *testing.T) {
 					"kid": "log attestation key 1",
 				},
 				Unprotected: cose.UnprotectedHeader{
-					-65535 - 0: mustSignPeaks([][]byte{{
-						0, 1, 2, 3, 4, 5, 6, 7,
-						8, 9, 10, 11, 12, 13, 14, 15,
-						16, 17, 18, 19, 20, 21, 22, 23,
-						24, 25, 26, 27, 28, 29, 30, 31,
-					}, {
-						0, 1, 2, 3, 4, 5, 6, 7,
-						8, 9, 10, 11, 12, 13, 14, 15,
-						16, 17, 18, 19, 20, 21, 22, 23,
-						24, 25, 26, 27, 28, 29, 30, 31,
-					},
+					-65535 - 0: mustSignPeaks([][]byte{
+						{
+							0, 1, 2, 3, 4, 5, 6, 7,
+							8, 9, 10, 11, 12, 13, 14, 15,
+							16, 17, 18, 19, 20, 21, 22, 23,
+							24, 25, 26, 27, 28, 29, 30, 31,
+						}, {
+							0, 1, 2, 3, 4, 5, 6, 7,
+							8, 9, 10, 11, 12, 13, 14, 15,
+							16, 17, 18, 19, 20, 21, 22, 23,
+							24, 25, 26, 27, 28, 29, 30, 31,
+						},
 					}),
 				},
 				Payload: mustMarshalCBOR(MMRState{
@@ -232,7 +242,8 @@ func TestCoseSign1_UnprotectedEncDec(t *testing.T) {
 						0, 1, 2, 3, 4, 5, 6, 7,
 						8, 9, 10, 11, 12, 13, 14, 15,
 						16, 17, 18, 19, 20, 21, 22, 23,
-						24, 25, 26, 27, 28, 29, 30, 31}},
+						24, 25, 26, 27, 28, 29, 30, 31,
+					}},
 					Timestamp: 1234,
 				}),
 			},
@@ -315,7 +326,6 @@ func TestCoseSign1_UnprotectedEncDec(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-
 			var err error
 
 			// cborCodec, err := NewRootSignerCodec()
@@ -346,7 +356,6 @@ func TestCoseSign1_UnprotectedEncDec(t *testing.T) {
 }
 
 func TestRootSigner_Sign1(t *testing.T) {
-
 	logger.New("TEST")
 
 	type fields struct {
@@ -381,7 +390,8 @@ func TestRootSigner_Sign1(t *testing.T) {
 						0, 1, 2, 3, 4, 5, 6, 7,
 						8, 9, 10, 11, 12, 13, 14, 15,
 						16, 17, 18, 19, 20, 21, 22, 23,
-						24, 25, 26, 27, 28, 29, 30, 31}},
+						24, 25, 26, 27, 28, 29, 30, 31,
+					}},
 					Timestamp: 1234,
 				},
 			},
@@ -389,7 +399,6 @@ func TestRootSigner_Sign1(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-
 			key := TestGenerateECKey(t, elliptic.P256())
 			rs := TestNewRootSigner(t, tt.fields.issuer)
 

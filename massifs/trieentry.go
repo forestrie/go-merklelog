@@ -39,17 +39,15 @@ const (
 	TrieEntryBytes            = 32 * 2 // 32 for trie key and 32 for trie value
 	TrieKeyBytes              = 32
 	TrieKeyEnd                = TrieKeyBytes
-	TrieEntryIdTimestampStart = 32 + 24
+	TrieEntryIDTimestampStart = 32 + 24
 	TrieEntrySnowflakeIDBytes = 8
-	TrieEntryIdTimestampEnd   = TrieEntryIdTimestampStart + TrieEntrySnowflakeIDBytes
+	TrieEntryIDTimestampEnd   = TrieEntryIDTimestampStart + TrieEntrySnowflakeIDBytes
 	TrieEntryExtraBytesStart  = 32
 	TrieEntryExtraBytesSize   = 24
 	TrieEntryExtraBytesEnd    = TrieEntryExtraBytesStart + TrieEntryExtraBytesSize
 )
 
-var (
-	ErrIndexEntryBadSize = errors.New("log index size invalid")
-)
+var ErrIndexEntryBadSize = errors.New("log index size invalid")
 
 // TrieEntryOffset calculates the trie entry offset in bytes into an mmrblob,
 //
@@ -105,7 +103,6 @@ var (
 // lost in transit. In that case we would not be able to re-create the leaf from
 // the database and so could not recover the log from just a database backup.
 func TrieEntryOffset(indexStart uint64, leafIndex uint64) uint64 {
-
 	trieEntryOffset := indexStart + (leafIndex)*TrieEntryBytes
 	return trieEntryOffset
 }
@@ -139,8 +136,8 @@ func GetTrieKey(trieData []byte, indexStart uint64, trieIndex uint64) []byte {
 // NOTE: trieIndex is equivilent to leafIndex.
 func GetIdtimestamp(trieData []byte, indexStart uint64, trieIndex uint64) []byte {
 	trieEntryOffset := TrieEntryOffset(indexStart, trieIndex)
-	idStart := trieEntryOffset + TrieEntryIdTimestampStart
-	idEnd := trieEntryOffset + TrieEntryIdTimestampEnd
+	idStart := trieEntryOffset + TrieEntryIDTimestampStart
+	idEnd := trieEntryOffset + TrieEntryIDTimestampEnd
 
 	return trieData[idStart:idEnd]
 }
@@ -167,8 +164,8 @@ func GetExtraBytes(trieData []byte, indexStart uint64, trieIndex uint64) []byte 
 //
 //	for leaves.
 func SetTrieEntry(trieData []byte, indexStart uint64, trieIndex uint64,
-	idTimestamp uint64, extraBytes []byte, trieKey []byte) {
-
+	idTimestamp uint64, extraBytes []byte, trieKey []byte,
+) {
 	trieEntryOffset := TrieEntryOffset(indexStart, trieIndex)
 	copy(trieData[trieEntryOffset:trieEntryOffset+TrieKeyEnd], trieKey)
 
@@ -180,8 +177,8 @@ func SetTrieEntry(trieData []byte, indexStart uint64, trieIndex uint64,
 	}
 
 	// idtimestamp
-	idTimestampStart := trieEntryOffset + TrieEntryIdTimestampStart
-	idTimestampEnd := trieEntryOffset + TrieEntryIdTimestampEnd
+	idTimestampStart := trieEntryOffset + TrieEntryIDTimestampStart
+	idTimestampEnd := trieEntryOffset + TrieEntryIDTimestampEnd
 	binary.BigEndian.PutUint64(trieData[idTimestampStart:idTimestampEnd], idTimestamp)
 }
 
@@ -195,16 +192,16 @@ func SetTrieEntry(trieData []byte, indexStart uint64, trieIndex uint64,
 // values to produce the final key. The returned value is a 32 byte SHA 256
 // hash.  H( DOMAIN || LOGID || APPID )
 func NewTrieKey(
-	domain KeyType, logId []byte, appId []byte,
+	domain KeyType, logID []byte, appID []byte,
 ) []byte {
 	h := sha256.New()
 
 	h.Write([]byte{uint8(domain)})
 
-	h.Write(logId)
+	h.Write(logID)
 
 	// sha256.Write does not error
-	_, _ = h.Write(appId)
+	_, _ = h.Write(appID)
 
 	return h.Sum(nil)
 }

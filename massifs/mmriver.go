@@ -6,12 +6,9 @@ import (
 	"crypto/sha256"
 	"fmt"
 
-	"github.com/datatrails/go-datatrails-common/azblob"
-	commoncbor "github.com/datatrails/go-datatrails-common/cbor"
 	"github.com/fxamacker/cbor/v2"
 
 	commoncose "github.com/datatrails/go-datatrails-common/cose"
-	"github.com/datatrails/go-datatrails-common/logger"
 	"github.com/datatrails/go-datatrails-merklelog/mmr"
 )
 
@@ -34,7 +31,7 @@ type MMRiverVerifiableProofs struct {
 	ConsistencyProofs []MMRiverConsistencyProof `cbor:"-2,keyasint,omitempty"`
 }
 
-// MMRiverInclusionProofHeader provides for encoding, and defered decoding, of
+// MMRiverVerifiableProofsHeader provides for encoding, and defered decoding, of
 // COSE_Sign1 message headers for MMRIVER receipts
 type MMRiverVerifiableProofsHeader struct {
 	VerifiableProofs MMRiverVerifiableProofs `cbor:"396,keyasint"`
@@ -54,7 +51,6 @@ func VerifySignedInclusionReceipts(
 	receipt *commoncose.CoseSign1Message,
 	candidates [][]byte,
 ) (bool, []byte, error) {
-
 	var err error
 
 	// ignore any existing payload
@@ -99,7 +95,7 @@ func VerifySignedInclusionReceipts(
 
 		proof = verifiableProofs.InclusionProofs[i]
 		proven := mmr.IncludedRoot(sha256.New(), proof.Index, candidates[i], proof.InclusionPath)
-		if bytes.Compare(receipt.Payload, proven) != 0 {
+		if !bytes.Equal(receipt.Payload, proven) {
 			return false, nil, fmt.Errorf(
 				"MMRIVER receipt VERIFY FAILED for: mmrIndex %d, candidate %d, err %v", proof.Index, i, err)
 		}
@@ -114,7 +110,6 @@ func VerifySignedInclusionReceipt(
 	receipt *commoncose.CoseSign1Message,
 	candidate []byte,
 ) (bool, []byte, error) {
-
 	ok, root, err := VerifySignedInclusionReceipts(ctx, receipt, [][]byte{candidate})
 	if err != nil {
 		return false, nil, err
@@ -127,8 +122,8 @@ func VerifySignedInclusionReceipt(
 
 type verifiedContextGetter interface {
 	GetVerifiedContext(
-		ctx context.Context, tenantIdentity string, massifIndex uint64,
-		opts ...ReaderOption,
+		ctx context.Context, massifIndex uint32,
+		opts ...Option,
 	) (*VerifiedContext, error)
 }
 
@@ -136,16 +131,15 @@ type verifiedContextGetter interface {
 func NewReceipt(
 	ctx context.Context,
 	massifHeight uint8,
-	tenantIdentity string, mmrIndex uint64,
+	mmrIndex uint64,
 	getter verifiedContextGetter,
 ) (*commoncose.CoseSign1Message, error) {
-
 	massifIndex := uint32(MassifIndexFromMMRIndex(massifHeight, mmrIndex))
 
-	verified, err := getter.GetVerifiedContext(ctx, tenantIdentity, uint64(massifIndex))
+	verified, err := getter.GetVerifiedContext(ctx, massifIndex)
 	if err != nil {
 		return nil, fmt.Errorf(
-			"%w: failed to get verified context %d for %s", err, massifIndex, tenantIdentity)
+			"%w: failed to get verified context %d", err, massifIndex)
 	}
 
 	msg, state := verified.Sign1Message, verified.MMRState
@@ -169,11 +163,11 @@ func NewReceipt(
 	err = cbor.Unmarshal(msg.Headers.RawUnprotected, &peaksHeader)
 	if err != nil {
 		return nil, fmt.Errorf(
-			"%w: failed decoding peaks header: for tenant %s, seal %d", err, tenantIdentity, massifIndex)
+			"%w: failed decoding peaks header: seal %d", err, massifIndex)
 	}
 	if peakIndex >= len(peaksHeader.PeakReceipts) {
 		return nil, fmt.Errorf(
-			"%w: peaks header containes to few peak receipts: for tenant %s, seal %d", err, tenantIdentity, massifIndex)
+			"%w: peaks header containes to few peak receipts: seal %d", err, massifIndex)
 	}
 
 	// This is an array of marshaled COSE_Sign1's
@@ -192,47 +186,11 @@ func NewReceipt(
 	verifiableProofs := MMRiverVerifiableProofs{
 		InclusionProofs: []MMRiverInclusionProof{{
 			Index:         mmrIndex,
-			InclusionPath: proof}},
+			InclusionPath: proof,
+		}},
 	}
 
 	signed.Headers.Unprotected[VDSCoseReceiptProofsTag] = verifiableProofs
 
 	return signed, nil
-}
-
-type ReceiptBuilder struct {
-	log          logger.Logger
-	massifReader MassifReader
-	cborCodec    commoncbor.CBORCodec
-	massifHeight uint8
-}
-
-// newReceiptBuilder creates a new receiptBuilder configured with all the necessary readers and information required to build a receipt
-// Note that errors are logged assuming the calling context is retrieving a receipt,
-// and that all returned errors are StatusErrors that can be returned to the client or nil
-func NewReceiptBuilder(log logger.Logger, reader azblob.Reader, massifHeight uint8) (ReceiptBuilder, error) {
-
-	var err error
-
-	b := ReceiptBuilder{
-		log:          log,
-		massifHeight: massifHeight,
-	}
-
-	if b.cborCodec, err = NewRootSignerCodec(); err != nil {
-		return ReceiptBuilder{}, err
-	}
-	b.massifHeight = massifHeight
-	b.massifReader = NewMassifReader(log, reader)
-	sealReader := NewSignedRootReader(log, reader, b.cborCodec)
-	b.massifReader = NewMassifReader(log, reader, WithSealGetter(&sealReader))
-
-	return b, nil
-}
-
-func (b *ReceiptBuilder) BuildReceipt(
-	ctx context.Context, tenantIdentity string, mmrIndex uint64,
-) (*commoncose.CoseSign1Message, error) {
-
-	return NewReceipt(ctx, b.massifHeight, tenantIdentity, mmrIndex, &b.massifReader)
 }

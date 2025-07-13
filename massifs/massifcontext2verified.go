@@ -22,8 +22,8 @@ type VerifyOptions struct {
 	COSEVerifier     cose.Verifier
 }
 
-type VerifiedContext2 struct {
-	MassifContext2
+type VerifiedContext struct {
+	MassifContext
 
 	// The signed message that was used to verify the massif data. Verification
 	// will use the public key from this message. The verification method allows
@@ -52,10 +52,9 @@ type VerifiedContext2 struct {
 // optionally also checks consistency against a provided state from a trusted source
 // Returns:
 //   - a VerifiedContext which references the dynamically allocated aspects of this context
-func (mc *MassifContext2) verifyContext(
+func (mc *MassifContext) verifyContext(
 	ctx context.Context, options VerifyOptions,
-) (*VerifiedContext2, error) {
-
+) (*VerifiedContext, error) {
 	state := options.Check.MMRState
 
 	if state.MMRSize > mc.RangeCount() {
@@ -74,9 +73,9 @@ func (mc *MassifContext2) verifyContext(
 	}
 }
 
-func (mc *MassifContext2) verifyContextV1V2(
+func (mc *MassifContext) verifyContextV1V2(
 	msg *commoncose.CoseSign1Message, state MMRState, options VerifyOptions,
-) (*VerifiedContext2, error) {
+) (*VerifiedContext, error) {
 	var ok bool
 	var err error
 	var peaksB [][]byte
@@ -152,8 +151,8 @@ func (mc *MassifContext2) verifyContextV1V2(
 		}
 	}
 
-	return &VerifiedContext2{
-		MassifContext2:   *mc,
+	return &VerifiedContext{
+		MassifContext:   *mc,
 		Sign1Message:    *msg,
 		MMRState:        state,
 		ConsistentRoots: peaksB,

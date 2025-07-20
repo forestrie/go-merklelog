@@ -3,8 +3,6 @@ package storage
 
 import (
 	"context"
-
-	"github.com/datatrails/go-datatrails-merklelog/massifs"
 )
 
 type ObjectType uint8
@@ -70,48 +68,9 @@ type ObjectReader interface {
 	Read(ctx context.Context, storagePath string, ty ObjectType) error
 }
 
-type MassifReader interface {
-	// GetStart retrieves the start of a massif by its index.
-	// But does not trigger a read of the massif data.
-	GetStart(ctx context.Context, massifIndex uint32) (*massifs.MassifStart, error)
-
-	GetData(ctx context.Context, massifIndex uint32) ([]byte, error)
-}
-
-type MassifContextReader interface {
-	// GetMassifContext retrieves the massif context by its index.
-	GetMassifContext(ctx context.Context, massifIndex uint32) (*massifs.MassifContext, error)
-
-	// GetHeadContext returns a context for the largest available massif index
-	GetHeadContext(ctx context.Context) (*massifs.MassifContext, error)
-}
-
-type MassifCommitter interface {
-	// GetAppendContext returns the next append ready massif context for the log
-	GetAppendContext(ctx context.Context) (*massifs.MassifContext, error)
-	CommitContext(ctx context.Context, mc *massifs.MassifContext) error
-}
-
-type CheckpointReader interface {
-	GetCheckpoint(ctx context.Context, massifIndex uint32) (*massifs.Checkpoint, error)
-}
-
-type CheckpointContextReader interface {
-	MassifContextReader
-	CheckpointReader
-}
-
-type UnverifiedMassifReader interface {
-	// Get retrieves the massif start, data, and checkpoint by its index.
-	// This will trigger a read of the massif data, if it is not already cached.
-	GetUnverified(ctx context.Context, massifIndex uint32) ([]byte, massifs.MassifStart, *massifs.Checkpoint, error)
-}
-
 type Reader interface {
 	SelectableLog
 	ObjectIndexer
 	ObjectExtents
 	ObjectReader
-	MassifReader
-	UnverifiedMassifReader
 }

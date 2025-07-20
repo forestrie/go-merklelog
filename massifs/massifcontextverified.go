@@ -18,7 +18,7 @@ type checkpointGetter interface {
 type VerifyOptions struct {
 	Check            *Checkpoint
 	TrustedBaseState *MMRState
-	COSECodec        commoncbor.CBORCodec
+	CBORCodec        *commoncbor.CBORCodec
 	COSEVerifier     cose.Verifier
 }
 
@@ -47,12 +47,11 @@ type VerifiedContext struct {
 	ConsistentRoots [][]byte
 }
 
-// GetSignedRoot retrieves the signed root for a massif identified by its index.
-// verifyContext verifies the log data in the context is consistent with its seal
+// VerifyContext verifies the log data in the context is consistent with its seal
 // optionally also checks consistency against a provided state from a trusted source
 // Returns:
 //   - a VerifiedContext which references the dynamically allocated aspects of this context
-func (mc *MassifContext) verifyContext(
+func (mc *MassifContext) VerifyContext(
 	ctx context.Context, options VerifyOptions,
 ) (*VerifiedContext, error) {
 	state := options.Check.MMRState
@@ -99,7 +98,7 @@ func (mc *MassifContext) verifyContextV1V2(
 	// created. Of course the seal itself could have been replaced, but at that
 	// point the only defense is an indpendent replica.
 
-	msg.Payload, err = options.COSECodec.MarshalCBOR(state)
+	msg.Payload, err = options.CBORCodec.MarshalCBOR(state)
 	if err != nil {
 		return nil, err
 	}

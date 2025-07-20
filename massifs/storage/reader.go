@@ -14,8 +14,8 @@ const (
 	ObjectMassifStart
 	ObjectMassifData
 	ObjectCheckpoint
-	ObjectMassifsRoot
-	ObjectCheckpointsRoot
+	ObjectPathMassifs
+	ObjectPathCheckpoints
 )
 
 const (
@@ -27,6 +27,12 @@ type IdentifyLogFunc func(ctx context.Context, storagePath string) (LogID, error
 type SelectableLog interface {
 	IdentifyLog(ctx context.Context, storagePath string) (LogID, error)
 	SelectLog(LogID) error
+}
+
+type PathProvider interface {
+	GetStoragePrefix(otype ObjectType) (string, error)
+	GetObjectIndex(storagePath string, otype ObjectType) (uint32, error)
+	GetStoragePath(massifIndex uint32, otype ObjectType) string
 }
 
 type ObjectExtents interface {
@@ -67,31 +73,38 @@ type ObjectReader interface {
 type MassifReader interface {
 	// GetStart retrieves the start of a massif by its index.
 	// But does not trigger a read of the massif data.
-	GetStart(ctx context.Context, massifIndex uint32) (massifs.MassifStart, error)
+	GetStart(ctx context.Context, massifIndex uint32) (*massifs.MassifStart, error)
 
 	GetData(ctx context.Context, massifIndex uint32) ([]byte, error)
+}
 
-	// Get retrieves the massif start and data by its index.
-	GetMassifContext(ctx context.Context, massifIndex uint32) (massifs.MassifContext, error)
+type MassifContextReader interface {
+	// GetMassifContext retrieves the massif context by its index.
+	GetMassifContext(ctx context.Context, massifIndex uint32) (*massifs.MassifContext, error)
 
-	// GetHeadContex returns a context for the largest available massif index
-	GetHeadContext(ctx context.Context) (massifs.MassifContext, error)
+	// GetHeadContext returns a context for the largest available massif index
+	GetHeadContext(ctx context.Context) (*massifs.MassifContext, error)
+}
+
+type MassifCommitter interface {
+	// GetAppendContext returns the next append ready massif context for the log
+	GetAppendContext(ctx context.Context) (*massifs.MassifContext, error)
+	CommitContext(ctx context.Context, mc *massifs.MassifContext) error
 }
 
 type CheckpointReader interface {
 	GetCheckpoint(ctx context.Context, massifIndex uint32) (*massifs.Checkpoint, error)
 }
 
+type CheckpointContextReader interface {
+	MassifContextReader
+	CheckpointReader
+}
+
 type UnverifiedMassifReader interface {
 	// Get retrieves the massif start, data, and checkpoint by its index.
 	// This will trigger a read of the massif data, if it is not already cached.
 	GetUnverified(ctx context.Context, massifIndex uint32) ([]byte, massifs.MassifStart, *massifs.Checkpoint, error)
-}
-
-type VerifiedMassifReader interface {
-	// Get retrieves the massif start, data, and checkpoint by its index.
-	// This will trigger a read of the massif data, if it is not already cached.
-	GetVerified(ctx context.Context, massifIndex uint32) ([]byte, massifs.MassifStart, *massifs.Checkpoint, error)
 }
 
 type Reader interface {

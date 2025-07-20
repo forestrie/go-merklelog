@@ -121,7 +121,7 @@ func VerifySignedInclusionReceipt(
 }
 
 type verifiedContextGetter interface {
-	GetVerifiedContext(
+	GetContextVerified(
 		ctx context.Context, massifIndex uint32,
 		opts ...Option,
 	) (*VerifiedContext, error)
@@ -136,7 +136,7 @@ func NewReceipt(
 ) (*commoncose.CoseSign1Message, error) {
 	massifIndex := uint32(MassifIndexFromMMRIndex(massifHeight, mmrIndex))
 
-	verified, err := getter.GetVerifiedContext(ctx, massifIndex)
+	verified, err := getter.GetContextVerified(ctx, massifIndex)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"%w: failed to get verified context %d", err, massifIndex)

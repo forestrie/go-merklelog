@@ -300,37 +300,22 @@ func (rs RootSigner) signEmptyPeakReceipt(
 }
 
 func NewRootSignerCodec() (commoncbor.CBORCodec, error) {
-	codec, err := commoncbor.NewCBORCodec(encOptions, decOptions)
-	if err != nil {
-		return commoncbor.CBORCodec{}, err
-	}
-	return codec, nil
+	return NewCBORCodec()
 }
-
-var (
-	encOptions = commoncbor.NewDeterministicEncOpts()
-	decOptions = cbor.DecOptions{
-		DupMapKey:   cbor.DupMapKeyEnforcedAPF, // (default) duplicated key not allowed
-		IndefLength: cbor.IndefLengthForbidden, // (default) no streaming
-		// override the default decoding behaviour for unsigned integers to retain the sign
-		IntDec: cbor.IntDecConvertNone, // decode CBOR uint/int to Go int64
-		TagsMd: cbor.TagsForbidden,     // (default) no tags
-	}
-)
 
 // CheckpointDecOptions returns the decoding options compatible with the RootSigner
 // With these options the sign is always retained
 // The options align with the cbor defaults, except for the handling of unsigned integers.
 func CheckpointDecOptions() cbor.DecOptions {
-	return decOptions
+	return DecOptions
 }
 
 // CheckpointEncOptions returns the decoding options compatible with the RootSigner
 // These options align with the cbor defaults
 func CheckpointEncOptions() cbor.EncOptions {
-	return encOptions
+	return EncOptions
 }
 
-func newCheckpointDecOptions() []commoncose.SignOption {
-	return []commoncose.SignOption{commoncose.WithDecOptions(decOptions)}
+func NewCheckpointDecOptions() []commoncose.SignOption {
+	return []commoncose.SignOption{commoncose.WithDecOptions(DecOptions)}
 }

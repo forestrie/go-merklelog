@@ -344,7 +344,7 @@ func (mc *MassifContext) Append(value []byte) (uint64, error) {
 
 	// XXX: TODO: ideally we would check for over flow here. But it is awkward
 	// and log base 2 n to work out the actual limit of this context. If we want
-	// that, we would capture it in GetCurrentContext The add leaf method
+	// that, we would capture it in GetAppendContext The add leaf method
 	// pre-flight checks on the highest leaf index which can be computed
 	// directly at any time. Over flow after that check is only possible if our
 	// basic mmr add is bust and that is extensively covered by unit tests.

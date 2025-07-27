@@ -30,7 +30,7 @@ type SelectableLog interface {
 type PathProvider interface {
 	GetStoragePrefix(otype ObjectType) (string, error)
 	GetObjectIndex(storagePath string, otype ObjectType) (uint32, error)
-	GetStoragePath(massifIndex uint32, otype ObjectType) string
+	GetStoragePath(massifIndex uint32, otype ObjectType) (string, error)
 }
 
 type ObjectExtents interface {

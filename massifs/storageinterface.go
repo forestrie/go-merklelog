@@ -39,3 +39,23 @@ type VerifiedMassifReader interface {
 	GetContextVerified(ctx context.Context, massifIndex uint32, opts ...Option) (*VerifiedContext, error)
 	GetHeadContextVerified(ctx context.Context, opts ...Option) (*VerifiedContext, error)
 }
+
+func WithVerifyCheckpoint(check *Checkpoint) Option {
+	return func(a any) {
+		opts, ok := a.(*VerifyOptions)
+		if !ok {
+			return
+		}
+		opts.Check = check
+	}
+}
+
+func WithVerifyTrustedState(state MMRState) Option {
+	return func(a any) {
+		opts, ok := a.(*VerifyOptions)
+		if !ok {
+			return
+		}
+		opts.TrustedBaseState = &state
+	}
+}

@@ -20,7 +20,7 @@ const (
 	MMRStateVersion0 MMRStateVersion = iota // Implicit initial release version
 	MMRStateVersion1                        // Version 1 is DRAFT_00 vds =2
 	// Version2 was introduced to indicate support for MMRIVER 02.
-	// In this draft we co-ordinated a requested assignment for the vds and in
+	// In this draft we co-ordinate a requested assignment for the vds and in
 	// doing so ended up with 3 rather than 2.
 	// Note that this change _does not_ impact verification of the checkpoints.
 	// It only impacts the presigned receipts attached in the unprotected headers.
@@ -41,8 +41,8 @@ const (
 
 	// The numbers < -65535 are reserved for private use.
 	COSEPrivateStart = int64(-65535)
-	// Numbers in the private use space are organisation / implementation specific.
-	// Allocation in this range MUST be co-ordinated datatrails wide.
+	// Numbers in the private use space are organization / implementation specific.
+	// Allocation in this range MUST be co-ordinate datatrails wide.
 	// Remembering that the range is *negative* we allocate the tag by
 	// subtracting the IANA registered tag for marking COSE Receipts proof data.
 	SealPeakReceiptsLabel = COSEPrivateStart - VDSCoseReceiptProofsTag
@@ -94,6 +94,35 @@ type MMRStateReceipts struct {
 	// To create a receipt, simply attach the inclusion proof to the unprotected header for the appropriate PeakIndex.
 	// PeakReceipts []cbor.RawMessage `cbor:"-65931,keyasint"`
 	PeakReceipts [][]byte `cbor:"-65931,keyasint"`
+}
+
+type SignerOptions struct {
+	Signer cose.Signer
+	PubKey *ecdsa.PublicKey
+	// If Key is not nil, it is used to create the cose.Signer.
+	Key *ecdsa.PrivateKey
+}
+
+func WithECSigner(s cose.Signer, pubKey *ecdsa.PublicKey) Option {
+	return func(a any) {
+		opts, ok := a.(*SignerOptions)
+		if !ok {
+			return
+		}
+		opts.Signer = s
+		opts.PubKey = pubKey
+	}
+}
+
+func WithECSigningKey(key *ecdsa.PrivateKey) Option {
+	return func(a any) {
+		opts, ok := a.(*SignerOptions)
+		if !ok {
+			return
+		}
+		opts.PubKey = &key.PublicKey
+		opts.Key = key
+	}
 }
 
 // RootSigner is used to produce a signature over an mmr log state.  This

@@ -11,15 +11,27 @@ import (
 	"github.com/veraison/go-cose"
 )
 
-type checkpointGetter interface {
-	GetCheckpoint(ctx context.Context, massifIndex uint32) (*Checkpoint, error)
-}
-
 type VerifyOptions struct {
 	Check            *Checkpoint
 	TrustedBaseState *MMRState
 	CBORCodec        *commoncbor.CBORCodec
 	COSEVerifier     cose.Verifier
+}
+
+func VerifyWithCBORCodec(codec *commoncbor.CBORCodec) func(any) {
+	return func(opts any) {
+		if verifyOpts, ok := opts.(*VerifyOptions); ok {
+			verifyOpts.CBORCodec = codec
+		}
+	}
+}
+
+func VerifyWithCOSEVerifier(verifier cose.Verifier) func(any) {
+	return func(opts any) {
+		if verifyOpts, ok := opts.(*VerifyOptions); ok {
+			verifyOpts.COSEVerifier = verifier
+		}
+	}
 }
 
 type VerifiedContext struct {
@@ -103,7 +115,11 @@ func (mc *MassifContext) verifyContextV1V2(
 		return nil, err
 	}
 
-	err = msg.Verify(nil, options.COSEVerifier)
+	if (options.COSEVerifier != nil) {
+		err = msg.Verify(nil, options.COSEVerifier)
+	} else  {
+		err = msg.VerifyWithCWTPublicKey(nil)
+	}
 	if err != nil {
 		return nil, fmt.Errorf(
 			"%w: failed to verify checkpoint for massif %d: %v",

@@ -6,6 +6,7 @@ require github.com/datatrails/go-datatrails-merklelog/mmr v0.4.0
 
 require (
 	github.com/datatrails/go-datatrails-common v0.30.0
+	github.com/google/uuid v1.6.0
 	github.com/stretchr/testify v1.10.0
 	github.com/veraison/go-cose v1.1.0
 )

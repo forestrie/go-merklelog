@@ -19,3 +19,27 @@ type StorageOptions struct {
 // Implementations type assert to Options target record and if that fails the
 // expectation they ignore the options
 type Option func(any)
+
+func WithPathProvider(provider storage.PathProvider) Option {
+	return func(opts any) {
+		if o, ok := opts.(*StorageOptions); ok {
+			o.PathProvider = provider
+		}
+	}
+}
+
+func WithCBORCodec(codec *commoncbor.CBORCodec) func(any) {
+	return func(opts any) {
+		if storageOpts, ok := opts.(*StorageOptions); ok {
+			storageOpts.CBORCodec = codec
+		}
+	}
+}
+
+func WithCOSEVerifier(verifier cose.Verifier) func(any) {
+	return func(opts any) {
+		if storageOpts, ok := opts.(*StorageOptions); ok {
+			storageOpts.COSEVerifier = verifier
+		}
+	}
+}

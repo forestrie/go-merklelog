@@ -3,6 +3,7 @@ package massifs
 import (
 	commoncbor "github.com/datatrails/go-datatrails-common/cbor"
 	"github.com/datatrails/go-datatrails-merklelog/massifs/storage"
+	"github.com/datatrails/go-datatrails-merklelog/massifs/storageschema"
 	"github.com/veraison/go-cose"
 )
 
@@ -13,6 +14,7 @@ type StorageOptions struct {
 	CBORCodec       *commoncbor.CBORCodec
 	COSEVerifier    cose.Verifier
 	PathProvider    storage.PathProvider
+	PrefixProvider  storageschema.PrefixProvider
 }
 
 // Option is a generic option type used for storage implementations.

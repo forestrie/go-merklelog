@@ -1,12 +1,16 @@
 package watcher
 
-import "github.com/datatrails/go-datatrails-merklelog/massifs/storage"
+import (
+	"bytes"
+	"encoding/json"
+	"github.com/datatrails/go-datatrails-merklelog/massifs/storage"
+)
 
 // LogMassif identifies a combination of log and massif Typically it is
 // used to convey that the massif is the most recently changed for that log
 type LogMassif struct {
 	Massif int    `json:"massifindex"`
-	LogID  string `json:"logid"`
+	LogID  storage.LogID `json:"logid"`
 }
 
 // LogActivity represents the per log output of the watch command
@@ -26,4 +30,14 @@ type LogActivity struct {
 	MassifURL string `json:"massif"`
 	// CheckpointURL is the remote path to the most recently changed checkpoint
 	CheckpointURL string `json:"checkpoint"`
+}
+
+func LogMassifsFromData(data []byte) ([]LogMassif, error) {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	var doc []LogMassif
+	err := decoder.Decode(&doc)
+	if err == nil {
+		return doc, nil
+	}
+	return nil, err
 }

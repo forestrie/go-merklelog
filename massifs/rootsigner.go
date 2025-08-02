@@ -101,6 +101,8 @@ type SignerOptions struct {
 	PubKey *ecdsa.PublicKey
 	// If Key is not nil, it is used to create the cose.Signer.
 	Key *ecdsa.PrivateKey
+	// If the Key is not nil, this is used as the cose.Algorithm for the Signer.
+	Alg cose.Algorithm
 }
 
 func WithECSigner(s cose.Signer, pubKey *ecdsa.PublicKey) Option {
@@ -114,7 +116,7 @@ func WithECSigner(s cose.Signer, pubKey *ecdsa.PublicKey) Option {
 	}
 }
 
-func WithECSigningKey(key *ecdsa.PrivateKey) Option {
+func WithECSigningKey(key *ecdsa.PrivateKey, alg cose.Algorithm) Option {
 	return func(a any) {
 		opts, ok := a.(*SignerOptions)
 		if !ok {
@@ -122,6 +124,7 @@ func WithECSigningKey(key *ecdsa.PrivateKey) Option {
 		}
 		opts.PubKey = &key.PublicKey
 		opts.Key = key
+		opts.Alg = alg
 	}
 }
 

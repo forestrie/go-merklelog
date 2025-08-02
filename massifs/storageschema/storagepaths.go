@@ -11,6 +11,16 @@ type StoragePaths struct {
 	CurrentLogID   storage.LogID
 }
 
+func FmtMassifPath(prefix string, massifIndex uint32) string {
+	return fmt.Sprintf(
+		"%s%s", prefix, fmt.Sprintf(V1MMRBlobNameFmt, massifIndex),
+	)
+}
+func FmtCheckpointPath(prefix string, massifIndex uint32) string {
+	return fmt.Sprintf(
+		"%s%s", prefix, fmt.Sprintf(V1MMRSignedTreeHeadBlobNameFmt, massifIndex),
+	)
+}
 func (s *StoragePaths) SelectLog(logID storage.LogID) error {
 	s.CurrentLogID = logID
 	return nil
@@ -38,17 +48,13 @@ func (s StoragePaths) GetLogStoragePath(logID storage.LogID, massifIndex uint32,
 	case storage.ObjectPathMassifs, storage.ObjectPathCheckpoints:
 		return prefix, nil
 	case storage.ObjectCheckpoint:
-		return fmt.Sprintf(
-			"%s%s", prefix, fmt.Sprintf(V1MMRSignedTreeHeadBlobNameFmt, massifIndex),
-		), nil
+		return FmtCheckpointPath(prefix, massifIndex), nil
 	case storage.ObjectMassifStart:
 		fallthrough
 	case storage.ObjectMassifData:
 		fallthrough
 	default:
-		return fmt.Sprintf(
-			"%s%s", prefix, fmt.Sprintf(V1MMRBlobNameFmt, massifIndex),
-		), nil
+		return FmtMassifPath(prefix, massifIndex), nil
 	}
 }
 

@@ -20,11 +20,10 @@ const (
 	HeadMassifIndex = ^uint32(0)
 )
 
-type IdentifyLogFunc func(ctx context.Context, storagePath string) (LogID, error)
+// type IdentifyLogFunc func(ctx context.Context, storagePath string) (LogID, error)
 
 type SelectableLog interface {
-	IdentifyLog(ctx context.Context, storagePath string) (LogID, error)
-	SelectLog(LogID) error
+	SelectLog(ctx context.Context, logID LogID) error
 }
 
 type PathProvider interface {

@@ -1,7 +1,3 @@
+// Package massifs works with a merkle mountain in chunks
+// which we call massifs
 package massifs
-
-/*
-
-Module for reading mmr blob (massif) from blob storage.
-
-*/

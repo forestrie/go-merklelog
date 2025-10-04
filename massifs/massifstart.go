@@ -80,6 +80,7 @@ const (
 	MassifStartKeyFirstIndexFirstByte = MassifStartKeyMassifEnd
 
 	MassifCurrentVersion = uint16(0)
+	Epoch2038            = uint32(1)
 )
 
 var (
@@ -169,6 +170,32 @@ func EncodeMassifStart(lastID uint64, version uint16, epoch uint32, massifHeight
 	return start
 }
 
+// MakeMassifStart creates a massif start from the provided data. The data must
+// be at least ValueBytes bytes long.
+func MakeMassifStart(data []byte) MassifStart {
+	if len(data) < (ValueBytes) {
+		panic("data too short to contain massif start")
+	}
+
+	ms := MassifStart{}
+	ms.Reserved = binary.BigEndian.Uint64(data[0:MassifStartKeyLastIDFirstByte])
+	ms.LastID = binary.BigEndian.Uint64(data[MassifStartKeyLastIDFirstByte:MassifStartKeyLastIDEnd])
+	ms.Version = binary.BigEndian.Uint16(data[MassifStartKeyVersionFirstByte:MassifStartKeyVersionEnd])
+	ms.CommitmentEpoch = binary.BigEndian.Uint32(data[MassifStartKeyEpochFirstByte:MassifStartKeyEpochEnd])
+	ms.MassifHeight = data[MassifStartKeyMassifHeightFirstByte]
+
+	ms.MassifIndex = binary.BigEndian.Uint32(data[MassifStartKeyMassifFirstByte:MassifStartKeyMassifEnd])
+	ms.FirstIndex = MassifFirstLeaf(ms.MassifHeight, ms.MassifIndex)
+	ms.PeakStackLen = mmr.LeafMinusSpurSum(uint64(ms.MassifIndex))
+
+	return ms
+}
+
+// DecodeMassifStart decodes a byte slice representing a MassifStart structure into the provided ms pointer.
+//
+// It parses the fixed-size header fields from the input byte slice using
+// big-endian encoding for multi-byte values.  Returns an error if the input
+// slice is too short or does not conform to the expected format.
 func DecodeMassifStart(ms *MassifStart, start []byte) error {
 	if len(start) < (ValueBytes) {
 		return ErrMassifFixedHeaderBadType

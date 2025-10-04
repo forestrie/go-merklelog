@@ -17,7 +17,7 @@ type publicKeyProvider interface {
 func DecodeSignedRoot(
 	codec cbor.CBORCodec, msg []byte,
 ) (*dtcose.CoseSign1Message, MMRState, error) {
-	signed, err := dtcose.NewCoseSign1MessageFromCBOR(msg, newCheckpointDecOptions()...)
+	signed, err := dtcose.NewCoseSign1MessageFromCBOR(msg, NewCheckpointDecOptions()...)
 	if err != nil {
 		return nil, MMRState{}, err
 	}

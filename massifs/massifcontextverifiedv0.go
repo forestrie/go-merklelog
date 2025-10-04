@@ -11,7 +11,7 @@ import (
 // verifyContextV0 reads and verifies the V0 seal, which will remain important
 // for replicas for a while.
 func (mc *MassifContext) verifyContextV0(
-	msg *cose.CoseSign1Message, state MMRState, options ReaderOptions,
+	msg *cose.CoseSign1Message, state MMRState, options VerifyOptions,
 ) (*VerifiedContext, error) {
 
 	var ok bool
@@ -30,55 +30,57 @@ func (mc *MassifContext) verifyContextV0(
 	if err != nil {
 		return nil, err
 	}
-
-	pubKeyProvider, err := mc.sealPublicKeyProvider(msg, options)
+	msg.Payload, err = options.CBORCodec.MarshalCBOR(state)
 	if err != nil {
 		return nil, err
 	}
 
-	err = VerifySignedCheckPoint(
-		*options.codec, pubKeyProvider, msg, state, nil,
-	)
+	if options.COSEVerifier != nil {
+		err = msg.Verify(nil, options.COSEVerifier)
+	} else {
+		err = msg.VerifyWithCWTPublicKey(nil)
+	}
 	if err != nil {
 		return nil, fmt.Errorf(
-			"%w: failed to verify seal for massif %d for tenant %s: %v",
-			ErrSealVerifyFailed, mc.Start.MassifIndex, mc.TenantIdentity, err)
+			"%w: failed to verify seal for massif %d: %v",
+			ErrSealVerifyFailed, mc.Start.MassifIndex, err)
 	}
 	cp, err := mmr.IndexConsistencyProofBagged(
 		state.MMRSize, mc.RangeCount(), mc, sha256.New())
 	if err != nil {
 		return nil, fmt.Errorf(
-			"%w: error creating bagged consistency proof from %d for massif %d, for tenant %s",
-			err, state.MMRSize, mc.Start.MassifIndex, mc.TenantIdentity)
+			"%w: error creating bagged consistency proof from %d for massif %d",
+			err, state.MMRSize, mc.Start.MassifIndex)
 	}
 
 	ok, rootB, err = mmr.CheckConsistencyBagged(mc, sha256.New(), cp, state.LegacySealRoot)
 	if err != nil {
 		return nil, fmt.Errorf(
-			"%w: error verifying bagged consistency proof from %d for massif %d, for tenant %s",
-			err, state.MMRSize, mc.Start.MassifIndex, mc.TenantIdentity)
+			"%w: error verifying bagged consistency proof from %d for massif %d",
+			err, state.MMRSize, mc.Start.MassifIndex)
 	}
 	if !ok {
 		// We don't expect false without error, but we
-		return nil, fmt.Errorf("%w: failed to verify bagged state for massif %d for tenant %s",
-			mmr.ErrConsistencyCheck, mc.Start.MassifIndex, mc.TenantIdentity)
+		return nil, fmt.Errorf("%w: failed to verify bagged state for massif %d",
+			mmr.ErrConsistencyCheck, mc.Start.MassifIndex)
 	}
 	// If the caller has provided a trusted base state, also verify against
 	// that. Typically this is used for 3d party verification, the 3rd party has
 	// saved a previously verified state in a local store, and they want to
 	// check the remote log is consistent with the log portion they have locally
 	// before replicating the new data.
-	if options.trustedBaseState != nil {
+	if options.TrustedBaseState != nil {
 
 		cp, err := mmr.IndexConsistencyProofBagged(
 			state.MMRSize, mc.RangeCount(), mc, sha256.New())
 		if err != nil {
 			return nil, fmt.Errorf(
-				"%w: error checking consistency with trusted base state from %d for tenant %s",
-				err, options.trustedBaseState.MMRSize, mc.TenantIdentity)
+				"%w: error checking consistency with trusted base state from %d",
+				err, options.TrustedBaseState.MMRSize)
 		}
 
-		ok, _, err = mmr.CheckConsistencyBagged(mc, sha256.New(), cp, options.trustedBaseState.LegacySealRoot)
+		ok, _, err = mmr.CheckConsistencyBagged(
+			mc, sha256.New(), cp, options.TrustedBaseState.LegacySealRoot)
 		if err != nil {
 			return nil, err
 		}

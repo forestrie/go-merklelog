@@ -55,8 +55,8 @@ func TestTrieEntryOffset(t *testing.T) {
 // 1. we can create a trie key and its format is correct.
 func TestNewTrieKey(t *testing.T) {
 	type args struct {
-		logId []byte
-		appId []byte
+		logID []byte
+		appID []byte
 	}
 	tests := []struct {
 		name     string
@@ -69,15 +69,15 @@ func TestNewTrieKey(t *testing.T) {
 		{
 			name: "typical datatrails event",
 			args: args{
-				logId: []byte("tenant/1de5793f-1421-45d8-999e-9513552f8c0b"),
-				appId: []byte("assets/9eb98893-e0e3-4c21-99c2-0a88d7b2c2ea/events/c0cd94a9-3489-4957-baf9-cf75d478b53f"),
+				logID: []byte("tenant/1de5793f-1421-45d8-999e-9513552f8c0b"),
+				appID: []byte("assets/9eb98893-e0e3-4c21-99c2-0a88d7b2c2ea/events/c0cd94a9-3489-4957-baf9-cf75d478b53f"),
 			},
 			expected: []uint8{123, 35, 118, 210, 212, 254, 212, 242, 52, 254, 186, 214, 7, 135, 29, 32, 194, 28, 222, 28, 169, 234, 74, 175, 58, 4, 21, 140, 63, 83, 150, 79},
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			actual := NewTrieKey(0, test.args.logId, test.args.appId)
+			actual := NewTrieKey(0, test.args.logID, test.args.appID)
 
 			assert.Equal(t, test.expected, actual)
 		})
@@ -104,7 +104,6 @@ func TestNewEmptyTrieEntry(t *testing.T) {
 }
 
 func TestSetLogIndexEntry(t *testing.T) {
-
 	expectTrieEntryBytes := 64
 
 	// If this fails, then we are likely updating the index format and this test needs updating.
@@ -193,8 +192,8 @@ func TestSetLogIndexEntry(t *testing.T) {
 			got = GetTrieKey(tt.args.logData, tt.args.indexStart, tt.args.leafIndex)
 			assert.Equal(t, b64clear[:32], got)
 
-			gotId := GetIdtimestamp(tt.args.logData, tt.args.indexStart, tt.args.leafIndex)
-			assert.Equal(t, tt.args.idTimestamp, binary.BigEndian.Uint64(gotId))
+			gotID := GetIdtimestamp(tt.args.logData, tt.args.indexStart, tt.args.leafIndex)
+			assert.Equal(t, tt.args.idTimestamp, binary.BigEndian.Uint64(gotID))
 
 			// check the extra bytes
 			gotBytes := GetExtraBytes(tt.args.logData, tt.args.indexStart, tt.args.leafIndex)

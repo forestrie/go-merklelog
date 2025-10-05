@@ -5,8 +5,8 @@ import (
 	"crypto/sha256"
 	"fmt"
 
-	commoncose "github.com/datatrails/go-datatrails-merklelog/massifs/cose"
-	"github.com/datatrails/go-datatrails-merklelog/mmr"
+	commoncose "github.com/forestrie/go-merklelog/massifs/cose"
+	"github.com/forestrie/go-merklelog/mmr"
 )
 
 type VerifiedContext struct {

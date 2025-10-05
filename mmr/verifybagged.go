@@ -58,7 +58,7 @@ func VerifyInclusionBagged(
 // This method exists for the situation where multiple, possibly related, proofs
 // are catenated together in the same path. As they are in log consistency
 // proofs, when they are proven against a mono root.
-// See [datatrails/go-datatrails-merklelog/merklelog/mmr/VerifyInclusion] for further details.
+// See [forstrie/go-merklelog/mmr/VerifyInclusion] for further details.
 //
 // Returns
 //

@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 
-	commoncbor "github.com/datatrails/go-datatrails-merklelog/massifs/cbor"
-	commoncose "github.com/datatrails/go-datatrails-merklelog/massifs/cose"
+	commoncbor "github.com/forestrie/go-merklelog/massifs/cbor"
+	commoncose "github.com/forestrie/go-merklelog/massifs/cose"
 	"github.com/veraison/go-cose"
 )
 

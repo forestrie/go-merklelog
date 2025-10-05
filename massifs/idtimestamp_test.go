@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/datatrails/go-datatrails-merklelog/massifs/snowflakeid"
+	"github.com/forestrie/go-merklelog/massifs/snowflakeid"
 	"github.com/stretchr/testify/require"
 )
 

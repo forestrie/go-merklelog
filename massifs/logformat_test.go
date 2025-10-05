@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/datatrails/go-datatrails-merklelog/mmr"
+	"github.com/forestrie/go-merklelog/mmr"
 	"github.com/stretchr/testify/assert"
 )
 

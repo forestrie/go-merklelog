@@ -19,7 +19,7 @@ import (
 	"encoding/binary"
 	"errors"
 
-	"github.com/datatrails/go-datatrails-merklelog/mmr"
+	"github.com/forestrie/go-merklelog/mmr"
 )
 
 type KeyType uint8

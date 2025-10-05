@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/datatrails/go-datatrails-merklelog/massifs/storage"
-	"github.com/datatrails/go-datatrails-merklelog/mmr"
+	"github.com/forestrie/go-merklelog/massifs/storage"
+	"github.com/forestrie/go-merklelog/mmr"
 )
 
 // GetAppendContext implements the unified logic for getting an append context

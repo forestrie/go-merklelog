@@ -8,7 +8,7 @@ import (
 	"io"
 	"reflect"
 
-	massifscbor "github.com/datatrails/go-datatrails-merklelog/massifs/cbor"
+	massifscbor "github.com/forestrie/go-merklelog/massifs/cbor"
 	"github.com/fxamacker/cbor/v2"
 	"github.com/ldclabs/cose/go/cwt"
 	"github.com/veraison/go-cose"

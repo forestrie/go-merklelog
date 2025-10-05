@@ -7,8 +7,8 @@ import (
 	"hash"
 	"maps"
 
-	"github.com/datatrails/go-datatrails-merklelog/massifs/snowflakeid"
-	"github.com/datatrails/go-datatrails-merklelog/mmr"
+	"github.com/forestrie/go-merklelog/massifs/snowflakeid"
+	"github.com/forestrie/go-merklelog/mmr"
 )
 
 type MassifData struct {

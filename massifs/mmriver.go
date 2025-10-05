@@ -8,9 +8,9 @@ import (
 
 	"github.com/fxamacker/cbor/v2"
 
-	commoncbor "github.com/datatrails/go-datatrails-merklelog/massifs/cbor"
-	commoncose "github.com/datatrails/go-datatrails-merklelog/massifs/cose"
-	"github.com/datatrails/go-datatrails-merklelog/mmr"
+	commoncbor "github.com/forestrie/go-merklelog/massifs/cbor"
+	commoncose "github.com/forestrie/go-merklelog/massifs/cose"
+	"github.com/forestrie/go-merklelog/mmr"
 	"github.com/veraison/go-cose"
 )
 

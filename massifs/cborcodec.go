@@ -1,7 +1,7 @@
 package massifs
 
 import (
-	"github.com/datatrails/go-datatrails-merklelog/massifs/cbor"
+	"github.com/forestrie/go-merklelog/massifs/cbor"
 )
 
 func NewCBORCodec() (cbor.CBORCodec, error) {

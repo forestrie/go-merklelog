@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/datatrails/go-datatrails-merklelog/massifs/storage"
+	"github.com/forestrie/go-merklelog/massifs/storage"
 )
 
 type LogIDFromPathFunc func(storagePath string) storage.LogID

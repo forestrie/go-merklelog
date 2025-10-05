@@ -1,6 +1,6 @@
 package massifs
 
-import "github.com/datatrails/go-datatrails-merklelog/mmr"
+import "github.com/forestrie/go-merklelog/mmr"
 
 // Methods for working with the mmrblob peak stack
 

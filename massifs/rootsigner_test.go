@@ -6,7 +6,7 @@ import (
 	"crypto/rand"
 	"testing"
 
-	commoncose "github.com/datatrails/go-datatrails-merklelog/massifs/cose"
+	commoncose "github.com/forestrie/go-merklelog/massifs/cose"
 	_ "github.com/fxamacker/cbor/v2"
 	"github.com/veraison/go-cose"
 

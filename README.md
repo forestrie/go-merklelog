@@ -1,4 +1,4 @@
-# go-datatrails-merklelog
+# go-merklelog
 
 Please see [forestrie](https://github.com/forestrie) for context
 

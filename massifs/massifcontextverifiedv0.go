@@ -4,8 +4,8 @@ import (
 	"crypto/sha256"
 	"fmt"
 
-	"github.com/datatrails/go-datatrails-merklelog/massifs/cose"
-	"github.com/datatrails/go-datatrails-merklelog/mmr"
+	"github.com/forestrie/go-merklelog/massifs/cose"
+	"github.com/forestrie/go-merklelog/mmr"
 )
 
 // verifyContextV0 reads and verifies the V0 seal, which will remain important

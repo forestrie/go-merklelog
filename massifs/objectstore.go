@@ -3,7 +3,7 @@ package massifs
 import (
 	"context"
 
-	"github.com/datatrails/go-datatrails-merklelog/massifs/storage"
+	"github.com/forestrie/go-merklelog/massifs/storage"
 )
 
 type ObjectReader interface {

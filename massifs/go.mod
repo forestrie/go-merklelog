@@ -1,19 +1,18 @@
-module github.com/datatrails/go-datatrails-merklelog/massifs
+module github.com/forestrie/go-merklelog/massifs
 
 go 1.24
 
-require github.com/datatrails/go-datatrails-merklelog/mmr v0.4.0
+require github.com/forestrie/go-merklelog/mmr v0.0.1
+
+replace github.com/forestrie/go-merklelog/mmr => ../mmr
 
 require (
 	github.com/google/uuid v1.6.0
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.1
 	github.com/veraison/go-cose v1.1.0
 )
 
-require (
-	github.com/kr/text v0.2.0 // indirect
-	github.com/rogpeppe/go-internal v1.13.1 // indirect
-)
+require github.com/kr/text v0.2.0 // indirect
 
 require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect

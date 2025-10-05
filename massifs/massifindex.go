@@ -1,6 +1,6 @@
 package massifs
 
-import "github.com/datatrails/go-datatrails-merklelog/mmr"
+import "github.com/forestrie/go-merklelog/mmr"
 
 // MassifIndexFromLeafIndex gets the massif index of the massif that the given leaf is stored in,
 //

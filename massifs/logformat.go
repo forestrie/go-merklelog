@@ -3,7 +3,7 @@ package massifs
 import (
 	"errors"
 
-	"github.com/datatrails/go-datatrails-merklelog/mmr"
+	"github.com/forestrie/go-merklelog/mmr"
 )
 
 const (

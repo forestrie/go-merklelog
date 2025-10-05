@@ -1,8 +1,8 @@
 package massifs
 
 import (
-	commoncbor "github.com/datatrails/go-datatrails-merklelog/massifs/cbor"
-	"github.com/datatrails/go-datatrails-merklelog/massifs/storage"
+	commoncbor "github.com/forestrie/go-merklelog/massifs/cbor"
+	"github.com/forestrie/go-merklelog/massifs/storage"
 	"github.com/veraison/go-cose"
 )
 

@@ -2,7 +2,7 @@ module github.com/forestrie/go-merklelog/massifs
 
 go 1.24
 
-require github.com/forestrie/go-merklelog/mmr v0.0.1
+require github.com/forestrie/go-merklelog/mmr v0.0.2
 
 replace github.com/forestrie/go-merklelog/mmr => ../mmr
 

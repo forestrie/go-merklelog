@@ -17,7 +17,10 @@ func NewCNFClaim(
 	claim := map[int64]interface{}{
 		CoseKeyLabel: map[int64]interface{}{
 			KeyIDLabel: kid,
-			// XXX: TODO: we perversly use the wrong name in go-datatrails-common in order to use jwk / json. We need to change that, at least so that EC2 is accepted and returned in the cose context
+			// XXX: TODO: legacy datatrails tech debt: used the wrong name in
+			// go-datatrails-common in order to use jwk / json. We need to
+			// change that, at least so that EC2 is accepted and returned in the
+			// cose context
 			KeyTypeLabel:   "EC", // EC2 is correct for rfc8152
 			AlgorithmLabel: alg,
 			ECCurveLabel:   pub.Curve.Params().Name,

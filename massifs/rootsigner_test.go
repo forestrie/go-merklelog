@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"testing"
 
-	"github.com/datatrails/go-datatrails-common/logger"
 	commoncose "github.com/datatrails/go-datatrails-merklelog/massifs/cose"
 	_ "github.com/fxamacker/cbor/v2"
 	"github.com/veraison/go-cose"
@@ -355,7 +354,6 @@ func TestCoseSign1_UnprotectedEncDec(t *testing.T) {
 }
 
 func TestRootSigner_Sign1(t *testing.T) {
-	logger.New("TEST")
 
 	type fields struct {
 		issuer string

@@ -6,11 +6,11 @@ import (
 	"crypto/rand"
 	"testing"
 
-	commoncose "github.com/datatrails/go-datatrails-common/cose"
+	"github.com/datatrails/go-datatrails-common/logger"
+	commoncose "github.com/datatrails/go-datatrails-merklelog/massifs/cose"
 	_ "github.com/fxamacker/cbor/v2"
 	"github.com/veraison/go-cose"
 
-	"github.com/datatrails/go-datatrails-common/logger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -22,7 +22,7 @@ func TestingGenerateECKey(t *testing.T, curve elliptic.Curve) ecdsa.PrivateKey {
 }
 
 func TestingNewRootSigner(t *testing.T, issuer string) RootSigner {
-	cborCodec, err := NewRootSignerCodec()
+	cborCodec, err := NewCBORCodec()
 	require.NoError(t, err)
 	rs := NewRootSigner(issuer, cborCodec)
 	return rs
@@ -33,10 +33,9 @@ func TestingNewRootSigner(t *testing.T, issuer string) RootSigner {
 // There are some gotcha's in the encoding rules when nesting cose messages and this test is used
 // to isolate the aspects we care about for the MMRIVER pre-signed receipts.
 func TestCoseSign1_UnprotectedEncDec(t *testing.T) {
-	logger.New("TEST")
 
 	key := TestingGenerateECKey(t, elliptic.P256())
-	cborCodec, err := NewRootSignerCodec()
+	cborCodec, err := NewCBORCodec()
 	require.NoError(t, err)
 	coseSigner := commoncose.NewTestCoseSigner(t, key)
 	rs := TestingNewRootSigner(t, "test-issuer")

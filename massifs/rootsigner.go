@@ -6,9 +6,8 @@ import (
 	"errors"
 	"fmt"
 
-	commoncbor "github.com/datatrails/go-datatrails-common/cbor"
-	commoncose "github.com/datatrails/go-datatrails-common/cose"
-	"github.com/fxamacker/cbor/v2"
+	commoncbor "github.com/datatrails/go-datatrails-merklelog/massifs/cbor"
+	commoncose "github.com/datatrails/go-datatrails-merklelog/massifs/cose"
 	"github.com/veraison/go-cose"
 )
 
@@ -331,23 +330,6 @@ func (rs RootSigner) signEmptyPeakReceipt(
 	return encodable.MarshalCBOR()
 }
 
-func NewRootSignerCodec() (commoncbor.CBORCodec, error) {
-	return NewCBORCodec()
-}
-
-// CheckpointDecOptions returns the decoding options compatible with the RootSigner
-// With these options the sign is always retained
-// The options align with the cbor defaults, except for the handling of unsigned integers.
-func CheckpointDecOptions() cbor.DecOptions {
-	return DecOptions
-}
-
-// CheckpointEncOptions returns the decoding options compatible with the RootSigner
-// These options align with the cbor defaults
-func CheckpointEncOptions() cbor.EncOptions {
-	return EncOptions
-}
-
 func NewCheckpointDecOptions() []commoncose.SignOption {
-	return []commoncose.SignOption{commoncose.WithDecOptions(DecOptions)}
+	return []commoncose.SignOption{commoncose.WithDecOptions(commoncbor.DecOptions)}
 }

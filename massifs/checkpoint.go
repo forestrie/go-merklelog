@@ -3,7 +3,7 @@ package massifs
 import (
 	"errors"
 
-	"github.com/datatrails/go-datatrails-common/cose"
+	"github.com/datatrails/go-datatrails-merklelog/massifs/cose"
 )
 
 var ErrLogContextNotRead = errors.New("attempted to use lastContext before it was read")

@@ -7,7 +7,6 @@ import (
 	"hash"
 	"maps"
 
-	"github.com/datatrails/go-datatrails-common/logger"
 	"github.com/datatrails/go-datatrails-merklelog/massifs/snowflakeid"
 	"github.com/datatrails/go-datatrails-merklelog/mmr"
 )
@@ -234,10 +233,6 @@ func (mc MassifContext) GetPeakStack() ([]byte, error) {
 // This method satisfies the Get method of the MMR NodeAdder interface
 func (mc *MassifContext) Get(i uint64) ([]byte, error) {
 	value, err := mc.get(i)
-	// this would produce way too much logging in services, but it is very handy for integration tests
-	if false && err == nil {
-		logger.Sugar.Debugf("mc.get: i=%d, mi=%d, v=%x", i, mc.Start.MassifIndex, value)
-	}
 	return value, err
 }
 
@@ -286,9 +281,6 @@ func (mc *MassifContext) get(i uint64) ([]byte, error) {
 	value, err := mc.GetStackedPeak(peakStackIndex)
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid context, requesting %d", err, i)
-	}
-	if false {
-		logger.Sugar.Debugf("mc.get(peak): i=%d, mi=%d, v=%x", i, mc.Start.MassifIndex, value)
 	}
 
 	return value, nil

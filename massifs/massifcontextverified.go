@@ -5,7 +5,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 
-	commoncose "github.com/datatrails/go-datatrails-common/cose"
+	commoncose "github.com/datatrails/go-datatrails-merklelog/massifs/cose"
 	"github.com/datatrails/go-datatrails-merklelog/mmr"
 )
 

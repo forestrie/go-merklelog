@@ -3,8 +3,8 @@ package massifs
 import (
 	"crypto"
 
-	"github.com/datatrails/go-datatrails-common/cbor"
-	dtcose "github.com/datatrails/go-datatrails-common/cose"
+	commoncbor "github.com/datatrails/go-datatrails-merklelog/massifs/cbor"
+	commoncose "github.com/datatrails/go-datatrails-merklelog/massifs/cose"
 	"github.com/veraison/go-cose"
 )
 
@@ -15,9 +15,10 @@ type publicKeyProvider interface {
 // DecodeSignedRoot decodes the MMRState values from the signed message
 // See VerifySignedCheckPoint for a description of how to verify a signed root
 func DecodeSignedRoot(
-	codec cbor.CBORCodec, msg []byte,
-) (*dtcose.CoseSign1Message, MMRState, error) {
-	signed, err := dtcose.NewCoseSign1MessageFromCBOR(msg, NewCheckpointDecOptions()...)
+	codec commoncbor.CBORCodec, msg []byte,
+) (*commoncose.CoseSign1Message, MMRState, error) {
+	signed, err := commoncose.NewCoseSign1MessageFromCBOR(
+		msg, []commoncose.SignOption{commoncose.WithDecOptions(commoncbor.DecOptions)}...)
 	if err != nil {
 		return nil, MMRState{}, err
 	}
@@ -43,7 +44,7 @@ func DecodeSignedRoot(
 //  2. Use MMRState.MMRSize to obtain the peaks of the log corresponding to that size
 //  3. Update the MMRState with the derived peaks and call this function to complete the verification
 func VerifySignedCheckPoint(
-	codec cbor.CBORCodec, keyProvider publicKeyProvider, signed *dtcose.CoseSign1Message, unverifiedState MMRState, external []byte) error {
+	codec commoncbor.CBORCodec, keyProvider publicKeyProvider, signed *commoncose.CoseSign1Message, unverifiedState MMRState, external []byte) error {
 
 	var err error
 	signed.Payload, err = codec.MarshalCBOR(unverifiedState)

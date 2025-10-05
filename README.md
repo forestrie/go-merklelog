@@ -1,5 +1,6 @@
 # go-datatrails-merklelog
 
-## Overview
+Please see [forestrie](https://github.com/forestrie) for context
 
-golang module for datatrails merklelog implementation.
+See [term-cheatsheet](term-cheatsheet.md) and [mmr-math-cheatsheet](mmr-math-cheatsheet.md) for developer oriented material
+

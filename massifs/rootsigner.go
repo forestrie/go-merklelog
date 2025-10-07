@@ -84,7 +84,7 @@ type MMRState struct {
 	IDTimestamp uint64 `cbor:"4,keyasint"`
 
 	// The current idtimestamp epoch (~17 year cadence. We use the unix epoch as
-	// our base but roll twice as fast. so we are on epoch 1 in 2024)
+	// our base but roll twice as fast. so we are on epoch 1 until 2038)
 	CommitmentEpoch uint32 `cbor:"6,keyasint"`
 }
 

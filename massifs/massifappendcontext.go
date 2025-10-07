@@ -107,6 +107,12 @@ func CreateFirstMassifContext(ctx context.Context, epoch uint32, massifHeight ui
 	data = append(data, mc.InitIndexData()...)
 	mc.Data = data
 
+	if mc.Start.Version > 0 {
+		// Pad the fixed allocation with zero bytes
+		padBytes := make([]byte, MaxMMRHeight*ValueBytes-(mc.Start.PeakStackLen*ValueBytes))
+		mc.Data = append(mc.Data, padBytes...)
+	}
+
 	// Create peak stack map for sequencers that need it
 	if err := mc.CreatePeakStackMap(); err != nil {
 		return MassifContext{}, fmt.Errorf("failed to create peak stack map for first massif: %w", err)

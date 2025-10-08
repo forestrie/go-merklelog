@@ -86,7 +86,7 @@ const (
 	// - a fixed 64 entries are always reserved for the peak stack, regardless of how many are
 	//   actually needed. this makes it possible to trivially compute the node &
 	//   leaf counts knowing only the byte size of the massif and assuming the
-	//   version is >= 2
+    //   version is >= 1
 )
 
 var (

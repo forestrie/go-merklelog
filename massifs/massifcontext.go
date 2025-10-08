@@ -148,6 +148,12 @@ func (mc *MassifContext) StartNextMassif() error {
 	nextStart.PeakStackLen = uint64(len(nextPeakStack) / ValueBytes)
 	nextData = append(nextData, nextPeakStack...)
 
+	if nextStart.Version > 0 {
+		// Pad the fixed allocation with zero bytes
+		padBytes := make([]byte, MaxMMRHeight*ValueBytes-(nextStart.PeakStackLen*ValueBytes))
+		nextData = append(nextData, padBytes...)
+	}
+
 	// store the updated data and update the start configuration for the new stack
 	mc.Start = nextStart
 	mc.Data = nextData
@@ -477,26 +483,27 @@ func (mc *MassifContext) GetLastIDTimestamp() uint64 {
 // the new accumulated stack head.
 func (mc MassifContext) GetAncestorPeakStack() ([]byte, error) {
 	peakStackStart := mc.PeakStackStart()
-	logStart := mc.LogStart()
-	if peakStackStart == logStart {
+
+	peakStackEnd := mc.IndexEnd() + ValueBytes*mc.Start.PeakStackLen
+	if peakStackStart == peakStackEnd {
 		return nil, nil
 	}
 
 	// It must be empty or have room for at least one item
-	if peakStackStart+ValueBytes > logStart {
-		return nil, fmt.Errorf("%w: peakStackEnd + entry size > logStart:  %d > %d", ErrAncestorStackInvalid, peakStackStart+ValueBytes, logStart)
+	if peakStackStart+ValueBytes > peakStackEnd {
+		return nil, fmt.Errorf("%w: peakStackEnd + entry size > logStart:  %d > %d", ErrAncestorStackInvalid, peakStackStart+ValueBytes, peakStackEnd)
 	}
 
 	// Must be properly aligned
-	if (logStart-peakStackStart)%ValueBytes != 0 {
-		return nil, fmt.Errorf("%w: size %% entry size=%d", ErrAncestorStackInvalid, (logStart-peakStackStart)%ValueBytes)
+	if (peakStackEnd-peakStackStart)%ValueBytes != 0 {
+		return nil, fmt.Errorf("%w: size %% entry size=%d", ErrAncestorStackInvalid, (peakStackEnd-peakStackStart)%ValueBytes)
 	}
 
 	if mc.Data == nil {
 		return nil, fmt.Errorf("%w: no data available", ErrAncestorStackInvalid)
 	}
 
-	return mc.Data[peakStackStart:logStart], nil
+	return mc.Data[peakStackStart:peakStackEnd], nil
 }
 
 func (mc MassifContext) LastCommitUnixMS(idTimestampEpoch uint8) (int64, error) {
@@ -582,9 +589,12 @@ func (mc MassifContext) PeakStackStart() uint64 {
 }
 
 func (mc MassifContext) LogStart() uint64 {
-	// Note that we calculate and store the peak stack length when we establish
-	// the context. So we don't need (or want) to use the global helper.
-	return mc.IndexEnd() + ValueBytes*mc.Start.PeakStackLen
+	switch mc.Start.Version {
+	case 1:
+		return mc.IndexEnd() + ValueBytes*MaxMMRHeight
+	default:
+		return mc.IndexEnd() + ValueBytes*mc.Start.PeakStackLen
+	}
 }
 
 func (mc MassifContext) GetLastValue() []byte {

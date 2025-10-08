@@ -48,7 +48,7 @@ const (
 	//
 	// .         | reserved | idtimestamp| reserved |  version | epoch  |massif height| massif i |
 	// .         | 0        | 8        15|          |  21 - 22 | 23   26|27         27| 28 -  31 |
-	// bytes     | 1        |     8      |          |      2   |    4   |      1      |     4    |
+	// bytes     | 1        |     8      |     5    |      2   |    4   |      1      |     4    |
 	//
 	// Note this layout produces a sequentially valued key. The value is always
 	// considered as a big endian large integer. Lexical ordering is defined
@@ -79,8 +79,14 @@ const (
 	MassifStartKeyMassifEnd           = MassifStartKeyMassifFirstByte + MassifStartKeyMassifSize // 32 bit
 	MassifStartKeyFirstIndexFirstByte = MassifStartKeyMassifEnd
 
-	MassifCurrentVersion = uint16(0)
 	Epoch2038            = uint32(1)
+	MassifCurrentVersion = uint16(1)
+	// Version 0 was/is produced by the datatrails implementation, currently operated by OnID
+	// Version 2 introduces:
+	// - a fixed 64 entries are always reserved for the peak stack, regardless of how many are
+	//   actually needed. this makes it possible to trivially compute the node &
+	//   leaf counts knowing only the byte size of the massif and assuming the
+    //   version is >= 1
 )
 
 var (

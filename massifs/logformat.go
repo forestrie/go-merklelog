@@ -19,9 +19,12 @@ const (
 	// gives us a little flex in the data format for the initial launch of
 	// forestrie. It would be frustrating to need a data migration for want of a
 	// few bytes.
-	ReservedHeaderSlots   = 7 // reserves n * ValueBytes at the front of the blob
-	StartHeaderSize       = ValueBytes + ValueBytes*ReservedHeaderSlots
-	StartHeaderEnd        = StartHeaderSize
+	ReservedHeaderSlots = 7 // reserves n * ValueBytes at the front of the blob
+	StartHeaderSize     = ValueBytes + ValueBytes*ReservedHeaderSlots
+	StartHeaderEnd      = StartHeaderSize
+	// MaxMMRHeight no single log can by taller than this, and matches the allowable bit size of an mmrIndex.
+	// Note that the max height *index* is 63
+	MaxMMRHeight          = 64
 	IndexHeaderBytes      = 32
 	LogEntryBytes         = 32
 	EntryByteSizeLogBase2 = 5
@@ -106,10 +109,15 @@ func PeakStackLen(massifIndex uint64) uint64 {
 }
 
 // PeakStackEnd returns the first byte after the massif ancestor peak stack data
-func PeakStackEnd(massifIndex uint64, massifHeight uint8) uint64 {
+func PeakStackEndV0(massifIndex uint64, massifHeight uint8) uint64 {
 	stackLen := PeakStackLen(massifIndex)
 	start := PeakStackStart(massifHeight)
 	return start + stackLen*ValueBytes
+}
+
+func PeakStackEnd(massifHeight uint8) uint64 {
+	start := PeakStackStart(massifHeight)
+	return start + MaxMMRHeight*ValueBytes
 }
 
 // MassifLogEntries calculates the number of log entries (nodes) in a blob from
@@ -121,8 +129,17 @@ func PeakStackEnd(massifIndex uint64, massifHeight uint8) uint64 {
 // blob store metadata: we store the FirstIndex on a blob tag, and the blob
 // metadata includes ContentLength. This means when we are checking if a root
 // seal covers the current log head, we don't need to fetch the log massif blob.
-func MassifLogEntries(dataLen int, massifIndex uint64, massifHeight uint8) (uint64, error) {
-	stackEnd := PeakStackEnd(massifIndex, massifHeight)
+func MassifLogEntriesV0(dataLen int, massifIndex uint64, massifHeight uint8) (uint64, error) {
+	stackEnd := PeakStackEndV0(massifIndex, massifHeight)
+	if uint64(dataLen) < stackEnd {
+		return 0, ErrMassifDataLengthInvalid
+	}
+	mmrByteCount := uint64(dataLen) - stackEnd
+	return mmrByteCount / ValueBytes, nil
+}
+
+func MassifLogEntries(dataLen int, massifHeight uint8) (uint64, error) {
+	stackEnd := PeakStackEnd(massifHeight)
 	if uint64(dataLen) < stackEnd {
 		return 0, ErrMassifDataLengthInvalid
 	}

@@ -182,6 +182,55 @@ func SetTrieEntry(trieData []byte, indexStart uint64, trieIndex uint64,
 	binary.BigEndian.PutUint64(trieData[idTimestampStart:idTimestampEnd], idTimestamp)
 }
 
+// SetTrieEntryExtra stores the trie Entry (trieKey + idTimestamp) in the given trie data at the given
+//
+//	trie index, with support for extended extra bytes storage.
+//
+// The extraBytes parameter is variadic and may contain at most 3 elements. This limit corresponds
+// to the extra space reserved in the index. The original implementation in TrieDataEnd (see
+// logformat.go:93-99) was an accidental bug that allocated double the needed space, but this is now
+// part of the formal format specification.
+//
+// Handling of extraBytes:
+//   - The first 24 bytes of extraBytes[0] (if provided) are written to the standard extra bytes field
+//     of the trie entry (TrieEntryExtraBytesStart).
+//   - If extraBytes[1] is provided, 32 bytes are written starting at trieEntryXOffset, where
+//     trieEntryXOffset = TrieEntryOffset(indexStart, trieIndex * 2).
+//   - If extraBytes[2] is provided, 32 bytes are written starting at trieEntryXOffset + ValueBytes.
+//   - Any additional extraBytes elements beyond the third are silently ignored.
+//
+// NOTE: trieIndex is equivalent to leafIndex. This is because trie entries are only added for leaves.
+func SetTrieEntryExtra(trieData []byte, indexStart uint64, trieIndex uint64,
+	idTimestamp uint64, trieKey []byte, extraBytes ...[]byte,
+) {
+	trieEntryOffset := TrieEntryOffset(indexStart, trieIndex)
+	copy(trieData[trieEntryOffset:trieEntryOffset+TrieKeyEnd], trieKey)
+
+	// First extra bytes field (standard location)
+	if len(extraBytes) > 0 && extraBytes[0] != nil {
+		extraBytesStart := trieEntryOffset + TrieEntryExtraBytesStart
+		extraBytesEnd := trieEntryOffset + TrieEntryExtraBytesEnd
+		copy(trieData[extraBytesStart:extraBytesEnd], extraBytes[0])
+	}
+
+	// idtimestamp
+	idTimestampStart := trieEntryOffset + TrieEntryIDTimestampStart
+	idTimestampEnd := trieEntryOffset + TrieEntryIDTimestampEnd
+	binary.BigEndian.PutUint64(trieData[idTimestampStart:idTimestampEnd], idTimestamp)
+
+	// Extended extra bytes fields (if provided)
+	if len(extraBytes) > 1 {
+		trieEntryXOffset := TrieEntryOffset(indexStart, trieIndex*2)
+		if extraBytes[1] != nil {
+			copy(trieData[trieEntryXOffset:trieEntryXOffset+ValueBytes], extraBytes[1])
+		}
+
+		if len(extraBytes) > 2 && extraBytes[2] != nil {
+			copy(trieData[trieEntryXOffset+ValueBytes:trieEntryXOffset+ValueBytes*2], extraBytes[2])
+		}
+	}
+}
+
 // NewTrieKey creates the trie key value.
 //
 // The trie key can then be used to compose the trie entry,

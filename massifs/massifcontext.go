@@ -356,17 +356,21 @@ func (mc *MassifContext) Append(value []byte) (uint64, error) {
 // written back to storage)
 //
 // Params:
-//   - extraBytes - extra bytes that are added to the trie value before idtimestamp. maximum 24 bytes.
-//     any extra bytes above 24 bytes will be truncated.
+//   - extraBytes0 - extra bytes that are added to the trie value before idtimestamp. maximum 24 bytes.
+//     any extra bytes above 24 bytes will be truncated. This maps to the first element of the variadic
+//     extraBytes parameter in SetTrieEntryExtra.
+//   - extraBytes - variadic extra bytes slices for extended storage. Up to 3 total slices (including
+//     extraBytes0) are supported. See SetTrieEntryExtra for details on extended storage locations.
 //
 // Returns the resulting size of the mmr if the leaf is adds successfully.
 func (mc *MassifContext) AddHashedLeaf(
 	hasher hash.Hash,
 	idTimestamp uint64,
-	extraBytes []byte,
+	extraBytes0 []byte,
 	logID []byte,
 	appID []byte,
 	value []byte,
+	extraBytes ...[]byte,
 ) (uint64, error) {
 	if len(value) != ValueBytes {
 		return 0, ErrLogValueBadSize
@@ -396,7 +400,9 @@ func (mc *MassifContext) AddHashedLeaf(
 	nextLeafIndex := mc.MassifLeafCount()
 
 	// Overwrite the pre-allocated index entry with the index data.
-	SetTrieEntry(mc.Data, mc.IndexStart(), nextLeafIndex, idTimestamp, extraBytes, trieKey)
+	// Combine extraBytes0 with variadic extraBytes for SetTrieEntryExtra
+	allExtraBytes := append([][]byte{extraBytes0}, extraBytes...)
+	SetTrieEntryExtra(mc.Data, mc.IndexStart(), nextLeafIndex, idTimestamp, trieKey, allExtraBytes...)
 
 	// Save the last id added so that we can guarantee monotonicity (and hence uniqueness for the tenant)
 	mc.setLastIDTimestamp(idTimestamp)

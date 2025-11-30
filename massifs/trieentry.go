@@ -195,12 +195,13 @@ func SetTrieEntry(trieData []byte, indexStart uint64, trieIndex uint64,
 //   - The first 24 bytes of extraBytes[0] (if provided) are written to the standard extra bytes field
 //     of the trie entry (TrieEntryExtraBytesStart).
 //   - If extraBytes[1] is provided, 32 bytes are written starting at trieEntryXOffset, where
-//     trieEntryXOffset = TrieEntryOffset(indexStart, trieIndex * 2).
+//     trieEntryXOffset = trieEntryOffset + TrieDataSize(massifHeight). This places extended bytes
+//     in the extended storage area that corresponds to the same relative position as the entry.
 //   - If extraBytes[2] is provided, 32 bytes are written starting at trieEntryXOffset + ValueBytes.
 //   - Any additional extraBytes elements beyond the third are silently ignored.
 //
 // NOTE: trieIndex is equivalent to leafIndex. This is because trie entries are only added for leaves.
-func SetTrieEntryExtra(trieData []byte, indexStart uint64, trieIndex uint64,
+func SetTrieEntryExtra(massifHeight uint8, trieData []byte, indexStart uint64, trieIndex uint64,
 	idTimestamp uint64, trieKey []byte, extraBytes ...[]byte,
 ) {
 	trieEntryOffset := TrieEntryOffset(indexStart, trieIndex)
@@ -220,7 +221,10 @@ func SetTrieEntryExtra(trieData []byte, indexStart uint64, trieIndex uint64,
 
 	// Extended extra bytes fields (if provided)
 	if len(extraBytes) > 1 {
-		trieEntryXOffset := TrieEntryOffset(indexStart, trieIndex*2)
+		// Place extended bytes in the extended storage area at the same relative position.
+		// The extended storage area starts after all trie entries, so we add TrieDataSize
+		// to the entry's offset to get the corresponding position in extended storage.
+		trieEntryXOffset := trieEntryOffset + TrieDataSize(massifHeight)
 		if extraBytes[1] != nil {
 			copy(trieData[trieEntryXOffset:trieEntryXOffset+ValueBytes], extraBytes[1])
 		}

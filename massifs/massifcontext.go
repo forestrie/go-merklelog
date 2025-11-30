@@ -402,7 +402,7 @@ func (mc *MassifContext) AddHashedLeaf(
 	// Overwrite the pre-allocated index entry with the index data.
 	// Combine extraBytes0 with variadic extraBytes for SetTrieEntryExtra
 	allExtraBytes := append([][]byte{extraBytes0}, extraBytes...)
-	SetTrieEntryExtra(mc.Data, mc.IndexStart(), nextLeafIndex, idTimestamp, trieKey, allExtraBytes...)
+	SetTrieEntryExtra(mc.Start.MassifHeight, mc.Data, mc.IndexStart(), nextLeafIndex, idTimestamp, trieKey, allExtraBytes...)
 
 	// Save the last id added so that we can guarantee monotonicity (and hence uniqueness for the tenant)
 	mc.setLastIDTimestamp(idTimestamp)

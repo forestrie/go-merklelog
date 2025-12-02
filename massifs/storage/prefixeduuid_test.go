@@ -23,10 +23,18 @@ func TestLogIDFromPrefixedUUID(t *testing.T) {
 		want LogID
 	}{
 		{
-			name: "valid prefix and path, uuid mid string",
+			name: "valid prefix and path, uuid mid string (v1 format)",
 			args: args{
 				prefix:      "tenant/",
 				storagePath: "v1/mmrs/tenant/01947000-3456-780f-bfa9-29881e3bac88/0/massifs/00000000000000000001.log",
+			},
+			want: mklogid("01947000-3456-780f-bfa9-29881e3bac88"),
+		},
+		{
+			name: "valid prefix and path, uuid mid string (v2 format)",
+			args: args{
+				prefix:      "tenant/",
+				storagePath: "v2/merklelog/massifs/14/01947000-3456-780f-bfa9-29881e3bac88/0000000000000001.log",
 			},
 			want: mklogid("01947000-3456-780f-bfa9-29881e3bac88"),
 		},

@@ -13,9 +13,19 @@ import (
 )
 
 func testmkmassfpath(uuidstr string, i uint32) string {
-	return fmt.Sprintf("v1/mmrs/tenant/%s/0/massifs/%020d.log", uuidstr, i)
+	// Use v2 format for new tests
+	return fmt.Sprintf("v2/merklelog/massifs/14/%s/%016x.log", uuidstr, i)
 }
 func testmksealpath(uuidstr string, i uint32) string {
+	// Use v2 format for new tests
+	return fmt.Sprintf("v2/merklelog/checkpoints/14/%s/%016x.sth", uuidstr, i)
+}
+
+// Old v1 format helpers for backward compatibility tests
+func testmkmassfpathV1(uuidstr string, i uint32) string {
+	return fmt.Sprintf("v1/mmrs/tenant/%s/0/massifs/%020d.log", uuidstr, i)
+}
+func testmksealpathV1(uuidstr string, i uint32) string {
 	return fmt.Sprintf("v1/mmrs/tenant/%s/0/massifseals/%020d.sth", uuidstr, i)
 }
 func testmklogid(uuidstr string) storage.LogID {

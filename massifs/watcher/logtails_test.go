@@ -14,11 +14,11 @@ import (
 
 func testmkmassfpath(uuidstr string, i uint32) string {
 	// Use v2 format for new tests
-	return fmt.Sprintf("v2/merklelog/massifs/14/%s/%016x.log", uuidstr, i)
+	return fmt.Sprintf("v2/merklelog/massifs/14/%s/%016d.log", uuidstr, i)
 }
 func testmksealpath(uuidstr string, i uint32) string {
 	// Use v2 format for new tests
-	return fmt.Sprintf("v2/merklelog/checkpoints/14/%s/%016x.sth", uuidstr, i)
+	return fmt.Sprintf("v2/merklelog/checkpoints/14/%s/%016d.sth", uuidstr, i)
 }
 
 // Old v1 format helpers for backward compatibility tests

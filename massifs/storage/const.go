@@ -11,4 +11,8 @@ const (
 	// [Changing the massifheight for a log](https://github.com/datatrails/epic-8120-scalable-proof-mechanisms/blob/1cb966cc10af03ae041fea4bca44b10979fb1eda/mmr/forestrie-mmrblobs.md#changing-the-massifheight-for-a-log)
 
 	LogInstanceN = 0
+
+	// V2 path prefixes for Arbor/Canopy services
+	V2MerklelogMassifsPrefix     = "v2/merklelog/massifs"
+	V2MerklelogCheckpointsPrefix = "v2/merklelog/checkpoints"
 )

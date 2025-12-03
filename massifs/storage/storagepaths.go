@@ -2,6 +2,8 @@ package storage
 
 import (
 	"fmt"
+
+	"github.com/google/uuid"
 )
 
 func FmtMassifPath(prefix string, massifIndex uint32) string {
@@ -42,4 +44,25 @@ func GetObjectIndex(storagePath string, otype ObjectType) (uint32, error) {
 		return ^uint32(0), fmt.Errorf("object type mismatch: expected %v, got %v", otype, gotOType)
 	}
 	return massifIndex, nil
+}
+
+// StorageObjectPrefixWithHeight returns the base path format (without service-specific prefix).
+// Returns: {massifHeight}/{uuid}/ for both massifs and checkpoints.
+// Service implementations (Arbor/Canopy) should add their own prefixes:
+// - v2/merklelog/massifs/ for massifs
+// - v2/merklelog/checkpoints/ for checkpoints
+func StorageObjectPrefixWithHeight(logID LogID, massifHeight uint8, otype ObjectType) (string, error) {
+	// Convert LogID to UUID string (without "tenant/" prefix for base format)
+	uuidStr := uuid.UUID(logID).String()
+
+	switch otype {
+	case ObjectMassifStart, ObjectMassifData, ObjectPathMassifs:
+		// Base format: {massifHeight}/{uuid}/
+		return fmt.Sprintf("%d/%s/", massifHeight, uuidStr), nil
+	case ObjectCheckpoint, ObjectPathCheckpoints:
+		// Base format: {massifHeight}/{uuid}/ (same for checkpoints)
+		return fmt.Sprintf("%d/%s/", massifHeight, uuidStr), nil
+	default:
+		return "", fmt.Errorf("unknown object type %v", otype)
+	}
 }

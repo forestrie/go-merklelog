@@ -16,10 +16,8 @@ import (
 // Special handling is provided for the case where massif zero does not exist, returning a specific error.
 // Returns the constructed MassifContext or an error if reading or initialization fails.
 func GetMassifContext(ctx context.Context, reader ObjectReader, massifIndex uint32) (MassifContext, error) {
-
 	// Allow for partial reads, its more efficient for some stores to read and cache the available start headers.
 	data, _, err := reader.MassifData(massifIndex)
-
 	if err != nil {
 		if massifIndex == 0 && errors.Is(err, storage.ErrDoesNotExist) {
 			return MassifContext{}, fmt.Errorf("%w: no object for massif zero", storage.ErrLogEmpty)
@@ -115,7 +113,6 @@ func GetCheckpointData(ctx context.Context, reader ObjectReader, massifIndex uin
 //   - []byte: The complete massif data.
 //   - error: An error if the data could not be retrieved.
 func GetMassifData(ctx context.Context, reader ObjectReader, massifIndex uint32) ([]byte, error) {
-
 	// check the native cache first, if a HeadIndex call was used, the native data has not been read.
 	// If the start header was read, we need the rest of the data now.
 	data, _, err := reader.MassifData(massifIndex)
@@ -181,8 +178,8 @@ func GetMassifStart(ctx context.Context, reader ObjectReader, massifIndex uint32
 // message and unverified MMR state.  Returns an error if the data cannot be
 // retrieved or decoded.
 func GetCheckpoint(
-	ctx context.Context, reader ObjectReader, codec commoncbor.CBORCodec, massifIndex uint32) (Checkpoint, error) {
-
+	ctx context.Context, reader ObjectReader, codec commoncbor.CBORCodec, massifIndex uint32,
+) (Checkpoint, error) {
 	data, err := GetCheckpointData(ctx, reader, massifIndex)
 	if err != nil {
 		return Checkpoint{}, err
@@ -201,7 +198,7 @@ func GetCheckpoint(
 }
 
 // GetContextVerified retrieves and verifies a massif context using the provided reader, CBOR codec, and COSE verifier.
-
+//
 // It applies any additional verification options supplied via opts. If a
 // checkpoint is not provided in the options, it fetches the checkpoint for the
 // specified massif index. The function returns a VerifiedContext if
@@ -222,7 +219,8 @@ func GetContextVerified(
 	ctx context.Context, reader ObjectReader,
 	codec *commoncbor.CBORCodec,
 	verifier cose.Verifier,
-	massifIndex uint32, opts ...Option) (*VerifiedContext, error) {
+	massifIndex uint32, opts ...Option,
+) (*VerifiedContext, error) {
 	verifyOpts := &VerifyOptions{
 		CBORCodec:    codec,
 		COSEVerifier: verifier,

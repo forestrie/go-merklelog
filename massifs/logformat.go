@@ -108,7 +108,7 @@ func PeakStackLen(massifIndex uint64) uint64 {
 	return mmr.LeafMinusSpurSum(massifIndex)
 }
 
-// PeakStackEnd returns the first byte after the massif ancestor peak stack data
+// PeakStackEndV0 returns the first byte after the massif ancestor peak stack data
 func PeakStackEndV0(massifIndex uint64, massifHeight uint8) uint64 {
 	stackLen := PeakStackLen(massifIndex)
 	start := PeakStackStart(massifHeight)
@@ -120,7 +120,7 @@ func PeakStackEnd(massifHeight uint8) uint64 {
 	return start + MaxMMRHeight*ValueBytes
 }
 
-// MassifLogEntries calculates the number of log entries (nodes) in a blob from
+// MassifLogEntriesV0 calculates the number of log entries (nodes) in a blob from
 // the length of the blob in bytes. It does this by accounting for the trie
 // entries and other header data. If you know the FirstIndex from the massif
 // start header you can get the overall massif size by direct addition.

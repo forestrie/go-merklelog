@@ -13,7 +13,6 @@ import (
 func GetAppendContext(
 	ctx context.Context, reader ObjectReader, epoch uint32, massifHeight uint8,
 ) (MassifContext, error) {
-
 	mc, err := GetMassifHeadContext(ctx, reader)
 	if errors.Is(err, storage.ErrLogEmpty) {
 		mc, err := CreateFirstMassifContext(ctx, epoch, massifHeight)
@@ -33,7 +32,6 @@ func GetAppendContext(
 
 // CommitContext implements the unified logic for committing a massif context
 func CommitContext(ctx context.Context, writer ObjectWriter, mc *MassifContext) error {
-
 	// Check we have not over filled the massif.
 	// Note that we need to account for the size based on the full range. When
 	// committing massifs after the first, additional nodes are always required to
@@ -64,7 +62,6 @@ func CommitContext(ctx context.Context, writer ObjectWriter, mc *MassifContext) 
 // InitAppendContext checks if the massif context needs to be rolled over to a new
 // massif and does so if required.
 func InitAppendContext(ctx context.Context, reader ObjectReader, mc *MassifContext) error {
-
 	var err error
 
 	// Size checking logic (identical for all storages)

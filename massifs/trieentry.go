@@ -3,18 +3,57 @@ package massifs
 /**
  * A Trie Entry is the companion data to an mmr entry.
  *
- * Its current format is:
+ * Each entry has four logical fields:
+
+ * |---------------|--------------|
+ * |   Key Bytes   | 32 Bytes     |
+ * |---------------|--------------|
+ * | Extra Bytes 0 | 32 bytes     |
+ * |---------------|--------------|
+ * | Extra Bytes 1 | 32 bytes     |
+ * |---------------|--------------|
+ * | Extra Bytes 2 | 32 bytes     |
+ * |---------------|--------------|
  *
- * H( DOMAIN  || LOGID || APPID) + idtimestamp
+ * The precise semantics of each field are application defined.
  *
- * We hash the application data in order to stop data leakage.
+ * The index data is stored on the log in relation to the mmr entries as follows:
  *
- * It is stored on the log in relation to the mmr entries as follows:
+ * |--------|-------------------|----------------------------|
+ * | header | Page0 | Page1     | mmrEntry1 ---> mmrEntryMax |
+ * |--------|-------------------|----------------------------|
+ *           <- 2 * Page Size ->
  *
- * |--------|------------------------------|----------------------------|
- * | header | trieEntry0 ---> trieEntryMax | mmrEntry1 ---> mmrEntryMax |
- * |--------|------------------------------|----------------------------|
- */
+ * Page Size = 2^heighIndex
+ *
+ * So for the default massifHeight of 14 that is 1 << 13
+ *
+ * KeyBytes and ExtraBytes0 are in the first page at offset:
+ *
+ *  2 * LeafIndex * ValueBytes
+ *
+ * ExtraBytes1 and ExtraBytes2 are in the second page at the same relative
+ * location.
+ *
+*
+* The original DataTrails blob format is described here
+* https://github.com/datatrails/epic-8120-scalable-proof-mechanisms/blob/main/mmr/forestrie-mmrblobs.md#massif-basic-file-format
+*
+* In summary, the massif log looks something like this:
+*
+* |------|-------------------|------------ |----------|----------------------------|
+* |HEADER| trieEntry0 -> max | UNUSED PAGE |peak stack| mmrEntry0 ---> mmrEntryMax |
+* |------|-------------------|-------------|----------|----------------------------|
+*
+*  The datatrails trieKey format is
+*
+* +-----------------------------------+
+* | H( DOMAIN || LOGID || APPID )     | . Key Bytes
+* +-----------------------------------+
+* |<reserved and zero>    |idtimestamp| . ExtraBytes 0 - recovery information
+* +-----------------------------------+
+* |                         24 .. 31  |
+*/
 
 import (
 	"crypto/sha256"
@@ -24,26 +63,6 @@ import (
 )
 
 const (
-
-	/**
-	* Each Trie Entry is the following:
-	*
-	* |-----------|-------------|
-	* | Key Bytes | Extra Bytes |
-	* |-----------|-------------|
-	* | 32 bytes  |  32 bytes   |
-	* |-----------|-------------|
-	*
-	* The default composition of the extraBytes is due to the original
-	* DataTrails format and is
-	*
-	* |----------|-------------|--------------|
-	* | Trie Key | Extra Bytes | ID Timestamp |
-	* |----------|-------------|--------------|
-	* | 32 bytes |  24 bytes   |    8 bytes   |
-	* |----------|-------------|--------------|
-	 */
-
 	TrieEntryBytes            = 32 * 2 // 32 for trie key and 32 for trie value
 	TrieKeyBytes              = 32
 	TrieKeyEnd                = TrieKeyBytes
@@ -64,83 +83,32 @@ var (
 	ErrExtraBytesToLarge  = errors.New("the fixed slot size for an extrabytes has been exceeded")
 )
 
-// TrieEntryOffset calculates the trie entry offset in bytes into an mmrblob,
-//
-//	for the trie entry at the given trie index.
-//
-// The blob format is described here
-// https://github.com/datatrails/epic-8120-scalable-proof-mechanisms/blob/main/mmr/forestrie-mmrblobs.md#massif-basic-file-format
-//
-// In summary, the massif log looks something like this:
-//
-//	|------|------------------------------|----------|----------------------------|
-//	|HEADER| trieEntry0 ---> trieEntryMax |peak stack| mmrEntry0 ---> mmrEntryMax |
-//	|------|------------------------------|----------|----------------------------|
-//
-// Where the trie entries are pre-allocated to zero and start after the single
-// fixed size HEADER entry. We can get the starting byte of the trie data
-// log of a particular massif, by calling `massifContext.IndexStart()`.
-//
-// The default trieKey format is
-//
-//	+-----------------------------------+
-//	| H( DOMAIN || LOGID || APPID )     | . trie key
-//	+-----------------------------------+
-//	|<reserved and zero>    |idtimestamp| . recovery information
-//	+-----------------------------------+
-//	|                         24 .. 31  |
-//
-// The general structure is
-//
-//	+-----------------------------------+
-//	| TRIE KEY                          |
-//	+-----------------------------------+
-//	| extraBytes 0                      |
-//	+-----------------------------------+
-//	|                         24 .. 31  |
-//	...
-//	second index page
-//	+-----------------------------------+
-//	| extraBytes 1                      |
-//	+-----------------------------------+
-//	| extraBytes 2                      |
-//	+-----------------------------------+
-//
-// The default format is specific to the datatrails origins of this format
-// which is now optional:
-//
-// The idtimestamp is preserved in the clear so that we can always account for
-// any log entry given only the original pre-image.
-//
-// The idtimestamps are unique and not included in information shared across
-// logs. So storing them like this does not increase the information leakage of
-// the public data in terms of log activity.
-//
-// The log id is included in the trieKey to ensure trieKeys across logs
-// are not the same. This ensures that to recreate the hash a user must have
-// all parts of the pre-image, including the app id.
-//
-// Whereas without the logID included in the hash, trieKeys across logs
-// for shared events will be the same. We are using the logID as a log
-// wide salt for the trie key hash.
-//
-// An mmr entry and its idtimestamp are committed atomically to the log. Once
-// both exist, the mmr entry is verifiable. This is true *even if* the COMMIT
-// message gets lost after updating the log. In principal, forestrie *creates*
-// the idtimestamp so forestrie should always be able to reconcile it.
-//
-// Dropping the id isn't a problem for compliance and verifiability use cases,
-// because in all those situations the verifier MUST present a verifiable
-// pre-image which will include the id. And we only share on COMMIT, which means
-// by definition the id got back to the customer.  In a recovery situation
-// however, we may have records in the database for which the COMMIT message got
-// lost in transit. In that case we would not be able to re-create the leaf from
-// the database and so could not recover the log from just a database backup.
+// TrieEntryOffset calculates the byte offset for a trie entry in an mmrblob
+// based on the index start and the leaf index. Each trie entry is a fixed size
+// of TrieEntryBytes, so the offset is calculated by multiplying the leaf index
+// by the entry size and adding the index start.
 func TrieEntryOffset(indexStart uint64, leafIndex uint64) uint64 {
 	trieEntryOffset := indexStart + (leafIndex)*TrieEntryBytes
 	return trieEntryOffset
 }
 
+// TrieEntryOffset calculates the byte offset for a trie entry in an mmrblob
+// based on the index start and the leaf index. Each trie entry is a fixed size
+// of TrieEntryBytes, so the offset is calculated by multiplying the leaf index
+// by the entry size and adding the index start.
+func TrieEntryOffset(indexStart uint64, leafIndex uint64) uint64 {
+	trieEntryOffset := indexStart + (leafIndex)*TrieEntryBytes
+	return trieEntryOffset
+}
+
+// CheckIndexData validates the input data for a trie index entry
+//
+// It performs the following checks:
+// 1. Ensures the trieKey is exactly TrieKeyBytes long
+// 2. Checks that the number of extraBytes does not exceed TrieEntryExtraSlots
+// 3. Verifies that each extraBytes slice does not exceed TrieKeyBytes in length
+//
+// Returns an error if any of these validations fail, otherwise returns nil
 func CheckIndexData(trieKey []byte, extraBytes ...[]byte) error {
 	if len(trieKey) != TrieKeyBytes {
 		return fmt.Errorf(
@@ -171,27 +139,36 @@ func checkWriteRange(buf []byte, start, end uint64) error {
 	return nil
 }
 
-// SetIndexFields stores the trieKey and extraBytes
+// SetIndexFields stores the trieKey and extraBytes in the predefined fields of the trie index
 //
-// They are stored the fixed number fields reserved for the trieIndex by the
-// format opptions of the log (which are currently not user configurable)
+// This method writes data to fixed-size fields in the trie entry format, with the following constraints:
 //
-// NOTE: Callers of this function must explicitly encode extraBytes items like
-// idtimestamp if they want and need them.
+// - The keyBytes must be exactly 32 bytes long
+// - Up to 3 extraBytes slices can be provided (corresponding to the reserved extra space)
+// - Each extraBytes slice is limited to 32 bytes
 //
-// The extraBytes parameter is variadic and may contain at most 3 elements. This limit corresponds
-// to the extra space reserved in the index. The original implementation in TrieDataEnd (see
-// logformat.go:93-99) was an accidental bug that allocated double the needed space, but this is now
-// part of the formal format specification.
+// The extraBytes are stored in specific locations:
+//   - extraBytes[0]: 32 bytes immediately after the trieKey (standard location)
+//   - extraBytes[1]: 32 bytes in the first field in the extended storage page
+//   - extraBytes[2]: 32 bytes in the second field in the extended storage page
 //
-// Handling of extraBytes:
-//   - If extraBytes[0] is provided, 32 bytes are written to the field
-//     imediately after the trieKey. It is inteded for values that benefit from
-//     trieKey locality.
-//   - If extraBytes[1] is provided, 32 bytes are written starting at trieEntryXOffset, the secondary page of index data.
-//   - If extraBytes[2] is provided, 32 bytes are written starting at trieEntryXOffset + ValueBytes.
+// Nil extraBytes entries are allowed, which permits skipping specific fields.
 //
-// NOTE: trieIndex is equivalent to leafIndex. This is because trie entries are only added for leaves.
+// NOTE: trieIndex is equivalent to leafIndex, as trie entries are only added for leaf nodes.
+//
+// Parameters:
+//   - trieData: The byte slice where the trie entry will be written
+//   - massifHeight: Height of the massif, used to calculate extended storage offset
+//   - indexStart: Starting byte offset of the index
+//   - trieIndex: Index of the trie entry (leaf index)
+//   - keyBytes: 32-byte key to be stored
+//   - extraBytes: Optional additional bytes to store in extra slots
+//
+// Returns an error if:
+//   - The keyBytes is not exactly 32 bytes
+//   - More than 3 extraBytes slices are provided
+//   - Any extraBytes slice exceeds 32 bytes
+//   - Writing would exceed the buffer's bounds
 func SetIndexFields(
 	trieData []byte,
 	massifHeight uint8,

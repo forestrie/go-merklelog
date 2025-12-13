@@ -351,6 +351,52 @@ func (mc *MassifContext) Append(value []byte) (uint64, error) {
 	return mc.RangeCount(), nil
 }
 
+// AddIndexedEntry adds the key and value to the log and index
+// On error, the current data buffer should be discarded entirely (not
+// written back to storage)
+func (mc *MassifContext) AddIndexedEntry(
+	key []byte, value []byte,
+	extraBytes ...[]byte,
+) (uint64, error) {
+	if len(value) != ValueBytes {
+		return 0, ErrLogValueBadSize
+	}
+	count := mc.Count()
+	iLast := mc.LastLeafMMRIndex()
+
+	if mc.Start.FirstIndex+count > iLast {
+		return 0, ErrMassifFull
+	}
+
+	// If we are about to add the last leaf, initialize the index into the peak
+	// stack. Each interior node added for the last leaf takes the 'next' item
+	// from the stack.
+	if mc.Start.FirstIndex+count == iLast {
+		mc.nextAncestor = int(mc.Start.PeakStackLen) - 1
+	}
+
+	// Get the trie leaf index. The count prior to addition of the leaf is the
+	// index of the leaf we are adding.
+	nextLeafIndex := mc.MassifLeafCount()
+	if err := SetIndexFields(
+		mc.Data, mc.Start.MassifHeight,
+		mc.IndexStart(), nextLeafIndex,
+		key, extraBytes...); err != nil {
+		return 0, err
+	}
+
+	// NOTE: the caller must update the start record idtimestamp if it is desired.
+	//
+	// provider implementations based on object storage may, and typically
+	// *should* set a tag on the storage object to make the lastid indexed.
+	// And make appropriate optimistic concurrency arrangements.
+
+	// Note: assume that the whole update is discarded on error, including the index update above.
+
+	// Returns the new MMR size if the new leaf is added successfully
+	return mmr.AddHashedLeaf(mc, sha256.New(), value)
+}
+
 // AddHashedLeaf adds the leaf value and corresponding trie data to the log and
 // trie. On error, the current data buffer should be discarded entirely (not
 // written back to storage)

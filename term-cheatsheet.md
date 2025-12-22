@@ -367,3 +367,48 @@ Example:
 Note: we ensure node 14 is also in massif 2. This allows
       massif 2 to be self contained and not rely on massif 1. 
 ```
+
+### Urkle Trie (exclusion trie)
+
+An Urkle trie (in this repo) is an authenticated binary radix trie over fixed-width 64-bit keys.
+
+It is intended to support **membership** and **exclusion** proofs for `idtimestamp` keys inside a fixed-size massif index budget.
+
+Key properties (from `arbor/docs/arc-urkle-format-and-support.md`):
+
+- Keys are `uint64` (Snowflake64 / `idtimestamp`)
+- Keys are traversed **MSB-first** (bit index 0 is the MSB / bit 63)
+- Construction requires keys be provided in **strictly increasing** order (`newKey > lastKey`)
+
+Related terms:
+
+- **crit-bit**: the first differing bit index between two distinct keys (MSB-first).
+- **common prefix bits (LCP)**: number of shared prefix bits (MSB-first). For distinct keys, `critBit == LCP`.
+- **leafOrdinal**: a chunk-local leaf number in the range `[0..leafCount-1]`.
+- **leafTable**: fixed-size table mapping `leafOrdinal -> (key, valueBytes[32])`.
+- **nodeStore**: fixed-size append-only array of node records in postorder.
+- **rightSpan**: the number of node records in the right subtree of a branch node.
+- **frontier**: bounded builder state needed to resume incremental construction without scanning.
+
+### Urkle inclusion / exclusion proofs
+
+- **urkleInclusionProof**: proves that `targetKey` is present and returns `(leafOrdinal, valueBytes[32])`.
+- **urkleExclusionProof**: proves that `targetKey` is absent by returning a membership proof for the **encountered leaf**
+  reached by traversing with `targetKey`, and showing `encounteredKey != targetKey`.
+
+### Bloom filter (prefilter)
+
+A Bloom filter is a fixed-size bitset supporting probabilistic membership queries:
+
+- if any required bit is 0: the element is **definitely not present**
+- if all required bits are 1: the element is **maybe present** (false positives are possible)
+
+In this repo, Bloom filters are an **I/O optimization only** (not a proof mechanism).
+
+Related terms:
+
+- **bitsPerElement** (`b`): sizing knob used to derive `mBits = b * leafCount`.
+- **mBits**: number of bits in the bitset for one filter.
+- **k**: number of hash-derived bit positions set/tested per element insert/query.
+- **bit order (LSB0)**: bit 0 is the least-significant bit of byte 0 (`b[0] & 0x01`).
+- **4-way bloom**: 4 parallel Bloom filters stored side-by-side for independent prefiltering.

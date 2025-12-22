@@ -24,6 +24,12 @@ func GetAppendContext(
 	if err != nil {
 		return MassifContext{}, fmt.Errorf("failed to get massif head context: %w", err)
 	}
+	if mc.Start.Version != MassifCurrentVersion {
+		return MassifContext{}, fmt.Errorf(
+			"unsupported massif version %d (need %d)",
+			mc.Start.Version, MassifCurrentVersion,
+		)
+	}
 	if err = InitAppendContext(ctx, reader, &mc); err != nil {
 		return MassifContext{}, fmt.Errorf("failed to init append context: %w", err)
 	}
@@ -103,6 +109,11 @@ func CreateFirstMassifContext(ctx context.Context, epoch uint32, massifHeight ui
 	// Pre-allocate and zero-fill the index
 	data = append(data, mc.InitIndexData()...)
 	mc.Data = data
+
+	// Initialize v2 index regions (bloom header/bitsets) for a brand new massif.
+	if err := mc.initIndexV2(); err != nil {
+		return MassifContext{}, fmt.Errorf("failed to init v2 index for first massif: %w", err)
+	}
 
 	if mc.Start.Version > 0 {
 		// Pad the fixed allocation with zero bytes

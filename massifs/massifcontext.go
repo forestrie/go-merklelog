@@ -9,6 +9,7 @@ import (
 
 	"github.com/forestrie/go-merklelog/massifs/snowflakeid"
 	"github.com/forestrie/go-merklelog/mmr"
+	"github.com/forestrie/go-merklelog/urkle"
 )
 
 type MassifData struct {
@@ -158,6 +159,11 @@ func (mc *MassifContext) StartNextMassif() error {
 	mc.Start = nextStart
 	mc.Data = nextData
 
+	// Initialize v2 index regions for the new massif.
+	if err := mc.initIndexV2(); err != nil {
+		return fmt.Errorf("failed to init v2 index: %w", err)
+	}
+
 	return nil
 }
 
@@ -240,32 +246,6 @@ func (mc MassifContext) GetPeakStack() ([]byte, error) {
 func (mc *MassifContext) Get(i uint64) ([]byte, error) {
 	value, err := mc.get(i)
 	return value, err
-}
-
-// GetTrieEntry gets the trie entry given the mmrIndex of its corresponding leaf node.
-func (mc MassifContext) GetTrieEntry(mmrIndex uint64) ([]byte, error) {
-	// Note: mmrIndex identifies an arbitrary node, so LeafIndex is necessary
-	trieIndex := mmr.LeafIndex(mmrIndex)
-
-	massifTrieIndex, err := mc.GetMassifTrieIndex(trieIndex)
-	if err != nil {
-		return nil, err
-	}
-
-	return GetTrieEntry(mc.Data, mc.IndexStart(), massifTrieIndex), nil
-}
-
-// GetTrieKey gets the trie key given the mmrIndex of the trie entries corresponding leaf node.
-func (mc MassifContext) GetTrieKey(mmrIndex uint64) ([]byte, error) {
-	// Note: mmrIndex identifies an arbitrary node, so LeafIndex is necessary
-	trieIndex := mmr.LeafIndex(mmrIndex)
-
-	massifTrieIndex, err := mc.GetMassifTrieIndex(trieIndex)
-	if err != nil {
-		return nil, err
-	}
-
-	return GetTrieKey(mc.Data, mc.IndexStart(), massifTrieIndex), nil
 }
 
 func (mc *MassifContext) get(i uint64) ([]byte, error) {
@@ -351,13 +331,18 @@ func (mc *MassifContext) Append(value []byte) (uint64, error) {
 	return mc.RangeCount(), nil
 }
 
-// AddIndexedEntry adds the key and value to the log and index
-// On error, the current data buffer should be discarded entirely (not
-// written back to storage)
-func (mc *MassifContext) AddIndexedEntry(
-	key []byte, value []byte,
-	extraBytes ...[]byte,
-) (uint64, error) {
+// AddIndexedEntry adds a hashed leaf value to the log.
+// On error, the current data buffer should be discarded entirely (not written
+// back to storage).
+//
+// IMPORTANT:
+//   - The caller is responsible for updating the corresponding v2 index data
+//     (Urkle + Bloom) after a successful append. Use `mc.IndexLeaf(...)` or the
+//     more granular `InsertUrkleMonotone(...)` / `UpdateBloomFilters(...)`.
+//   - If the caller wants the massif start record updated with the last id
+//     timestamp, they must call `mc.SetLastIDTimestamp(...)` after a successful
+//     append.
+func (mc *MassifContext) AddIndexedEntry(value []byte) (uint64, error) {
 	if len(value) != ValueBytes {
 		return 0, ErrLogValueBadSize
 	}
@@ -375,40 +360,28 @@ func (mc *MassifContext) AddIndexedEntry(
 		mc.nextAncestor = int(mc.Start.PeakStackLen) - 1
 	}
 
-	// Get the trie leaf index. The count prior to addition of the leaf is the
-	// index of the leaf we are adding.
-	nextLeafIndex := mc.MassifLeafCount()
-	if err := SetIndexFields(
-		mc.Data, mc.Start.MassifHeight,
-		mc.IndexStart(), nextLeafIndex,
-		key, extraBytes...); err != nil {
-		return 0, err
-	}
-
-	// NOTE: the caller must update the start record idtimestamp if it is desired.
-	//
-	// provider implementations based on object storage may, and typically
-	// *should* set a tag on the storage object to make the lastid indexed.
-	// And make appropriate optimistic concurrency arrangements.
-
-	// Note: assume that the whole update is discarded on error, including the index update above.
-
 	// Returns the new MMR size if the new leaf is added successfully
 	return mmr.AddHashedLeaf(mc, sha256.New(), value)
 }
 
-// AddHashedLeaf adds the leaf value and corresponding trie data to the log and
-// trie. On error, the current data buffer should be discarded entirely (not
-// written back to storage)
+// AddHashedLeaf adds the leaf value and corresponding v2 index data (Urkle + Bloom)
+// to the log. On error, the current data buffer should be discarded entirely
+// (not written back to storage).
 //
-// Params:
-//   - extraBytes0 - extra bytes that are added to the trie value before idtimestamp. maximum 24 bytes.
-//     any extra bytes above 24 bytes will be truncated. This maps to the first element of the variadic
-//     extraBytes parameter in SetTrieEntryExtra.
-//   - extraBytes - variadic extra bytes slices for extended storage. Up to 3 total slices (including
-//     extraBytes0) are supported. See SetTrieEntryExtra for details on extended storage locations.
+// NOTE: This legacy convenience method is preserved but reimplemented in terms
+// of `AddIndexedEntry` + the v2 index update methods.
 //
-// Returns the resulting size of the mmr if the leaf is adds successfully.
+// In v2:
+//   - `idTimestamp` is the Urkle key (strictly increasing).
+//   - `value` MUST be exactly 32 bytes and is appended to the MMR log (hashed leaf),
+//     and also used as the Urkle `valueBytes` (and default Bloom filter 0 element).
+//   - `extraBytes0` is forwarded as bloom0 override (`extraData[0]`) and is NOT stored
+//     in the Urkle leaf record.
+//   - Up to 3 auxiliary extra fields are stored in the Urkle leaf record: the last 3
+//     of (`logID`, `appID`, `extraBytes...`).
+//   - Bloom filters 1..3 are updated only for stored extras that are exactly 32 bytes.
+//
+// Returns the resulting MMR size if the leaf is added successfully.
 func (mc *MassifContext) AddHashedLeaf(
 	hasher hash.Hash,
 	idTimestamp uint64,
@@ -418,49 +391,69 @@ func (mc *MassifContext) AddHashedLeaf(
 	value []byte,
 	extraBytes ...[]byte,
 ) (uint64, error) {
+	_ = hasher // retained for signature compatibility; v2 append path uses sha256 consistently.
 	if len(value) != ValueBytes {
 		return 0, ErrLogValueBadSize
 	}
 
-	trieKey := NewTrieKey(KeyTypeApplicationContent, logID, appID)
-	if len(trieKey) != TrieKeyBytes {
-		return 0, ErrIndexEntryBadSize
+	if err := mc.requireV2Index(); err != nil {
+		return 0, err
 	}
 
-	count := mc.Count()
-	iLast := mc.LastLeafMMRIndex()
-
-	if mc.Start.FirstIndex+count > iLast {
-		return 0, ErrMassifFull
+	// Append the MMR leaf first.
+	mmrSize, err := mc.AddIndexedEntry(value)
+	if err != nil {
+		return 0, err
 	}
 
-	// If we are about to add the last leaf, initialize the index into the peak
-	// stack. Each interior node added for the last leaf takes the 'next' item
-	// from the stack.
-	if mc.Start.FirstIndex+count == iLast {
-		mc.nextAncestor = int(mc.Start.PeakStackLen) - 1
+	// Update v2 index structures (Urkle + Bloom).
+	//
+	// The valueBytes parameter is stored directly in the trie leaf record as the content-hash.
+	// This is the content hash (not the MMR leaf hash H(idtimestamp || content-hash)),
+	// enabling direct verification of (idtimestamp, content) pair exclusion.
+	//
+	// We store the last 3 of (logID, appID, extraBytes...) in the Urkle leaf record,
+	// but only attempt to insert 32-byte extras into bloom filters 1..3.
+	extrasAll := make([][]byte, 0, 2+len(extraBytes))
+	extrasAll = append(extrasAll, logID, appID)
+	extrasAll = append(extrasAll, extraBytes...)
+
+	stored := extrasAll
+	if len(stored) > 3 {
+		stored = stored[len(stored)-3:]
 	}
 
-	// Get the trie leaf index. The count prior to addition of the leaf is the
-	// index of the leaf we are adding.
-	nextLeafIndex := mc.MassifLeafCount()
+	// Urkle leaf record extras: preserve provided bytes (any length <= 32 supported by LeafSetExtra).
+	extraDataTrie := append([][]byte{extraBytes0}, stored...)
+	leafOrdinal, err := mc.InsertUrkleMonotone(idTimestamp, value, extraDataTrie...)
+	if err != nil {
+		return 0, err
+	}
+	// Best-effort consistency check: leafOrdinal should match the just-appended leaf index.
+	if mc.MassifLeafCount() > 0 {
+		want := uint32(mc.MassifLeafCount() - 1)
+		if leafOrdinal != want {
+			return 0, fmt.Errorf("urkle leaf ordinal mismatch: got=%d want=%d", leafOrdinal, want)
+		}
+	}
 
-	// Overwrite the pre-allocated index entry with the index data.
-	// Combine extraBytes0 with variadic extraBytes for SetTrieEntryExtra
-	allExtraBytes := append([][]byte{extraBytes0}, extraBytes...)
-	SetTrieEntryExtra(mc.Start.MassifHeight, mc.Data, mc.IndexStart(), nextLeafIndex, idTimestamp, trieKey, allExtraBytes...)
+	// Bloom filters: only insert 32-byte extras for filters 1..3.
+	extraDataBloom := make([][]byte, 0, 1+len(stored))
+	extraDataBloom = append(extraDataBloom, extraBytes0)
+	for _, x := range stored {
+		if len(x) != ValueBytes {
+			extraDataBloom = append(extraDataBloom, nil)
+			continue
+		}
+		extraDataBloom = append(extraDataBloom, x)
+	}
+	if err := mc.UpdateBloomFilters(value, extraDataBloom...); err != nil {
+		return 0, err
+	}
 
-	// Save the last id added so that we can guarantee monotonicity (and hence uniqueness for the tenant)
-	mc.setLastIDTimestamp(idTimestamp)
-
-	// provider implementations based on object storage may, and typically
-	// *should* set a tag on the storage object to make the lastid indexed.
-	// And make appropriate optimistic concurrency arrangements.
-
-	// Note: assume that the whole update is discarded on error, including the index update above.
-
-	// Returns the new MMR size if the new leaf is added successfully
-	return mmr.AddHashedLeaf(mc, hasher, value)
+	// Persist last idtimestamp in the massif start header.
+	mc.SetLastIDTimestamp(idTimestamp)
+	return mmrSize, nil
 }
 
 // CheckConsistency checks that the data in the massif is consistent with the provided state.
@@ -512,8 +505,9 @@ func (mc *MassifContext) CheckConsistency(
 	return peaksB, nil
 }
 
-// setLastIDTimestamp must be called after A
-func (mc *MassifContext) setLastIDTimestamp(idTimestamp uint64) {
+// SetLastIDTimestamp updates the massif start record with the idTimestamp of
+// the last entry appended to the log.
+func (mc *MassifContext) SetLastIDTimestamp(idTimestamp uint64) {
 	mc.Start.LastID = idTimestamp
 	// Note: must 'write through' to the data, so commit only has to put the
 	// bytes and doesn't care about the details of the format and its maintenance
@@ -578,17 +572,6 @@ func (mc MassifContext) GetMassifLeafIndex(leafIndex uint64) (uint64, error) {
 	return leafIndex - firstLeafIndex, nil
 }
 
-// GetMassifTrieIndex returns the trieIndex into the whole log relative to the start of the massif trie index.
-func (mc MassifContext) GetMassifTrieIndex(trieIndex uint64) (uint64, error) {
-	// trie index is equivalent to leaf index, so just get the leaf index
-	return mc.GetMassifLeafIndex(trieIndex)
-}
-
-// GetTrieIDTimestamp returns the idTimestamp from the trieEntry, for the identified trie index.
-func (mc MassifContext) GetTrieIDTimestamp(trieIndex uint64) ([]byte, error) {
-	return GetIdtimestamp(mc.Data, mc.IndexStart(), trieIndex), nil
-}
-
 // MassifLeafCount returns the number of leaves in the current blob (If you want
 // the number of leaves in the entire mmr call mmr.LeafCount directly)
 func (mc MassifContext) MassifLeafCount() uint64 {
@@ -624,16 +607,44 @@ func (mc MassifContext) IndexStart() uint64 {
 }
 
 func (mc MassifContext) IndexLen() uint64 {
-	return (1 << mc.Start.MassifHeight)
+	// IndexLen is meaningful only for v2 (Bloom+Urkle) where index sizing is expressed
+	// in terms of leaf capacity N = 2^(h-1).
+	if mc.Start.Version != MassifCurrentVersion {
+		return 0
+	}
+	if mc.Start.MassifHeight == 0 {
+		return 0
+	}
+	return urkle.LeafCountForMassifHeight(mc.Start.MassifHeight)
 }
 
 func (mc MassifContext) IndexSize() uint64 {
-	return mc.IndexLen() * TrieEntryBytes
+	// IndexSize is the byte size of the index *data* region (excluding the fixed 32B index header).
+	//
+	// For v2 this is the Bloom bitsets + Urkle frontier + leaf table + node store.
+	//
+	// For legacy massif blob formats (v0/v1), the v2 index data region is not present.
+	// We return 0 so that log offsets are computed correctly for read/verify-only support.
+	if mc.Start.Version != MassifCurrentVersion {
+		return 0
+	}
+	//
+	// NOTE: The safety of the MassifHeight-implied leaf capacity is assured when the context is
+	// created. Provided callers do not mutate `mc.Start.MassifHeight`, this computation remains safe.
+	if mc.Start.MassifHeight == 0 {
+		return 0
+	}
+	leafCount := urkle.LeafCountForMassifHeight(mc.Start.MassifHeight)
+	sz, err := indexDataBytesV2(leafCount)
+	if err != nil {
+		return 0
+	}
+	return sz
 }
 
 // IndexEnd returns the byte index of the end of index data
 func (mc MassifContext) IndexEnd() uint64 {
-	return mc.IndexStart() + TrieEntryBytes*(1<<mc.Start.MassifHeight)
+	return mc.IndexStart() + mc.IndexSize()
 }
 
 func (mc MassifContext) PeakStackStart() uint64 {
@@ -643,6 +654,8 @@ func (mc MassifContext) PeakStackStart() uint64 {
 func (mc MassifContext) LogStart() uint64 {
 	switch mc.Start.Version {
 	case 1:
+		fallthrough
+	case 2:
 		return mc.IndexEnd() + ValueBytes*MaxMMRHeight
 	default:
 		return mc.IndexEnd() + ValueBytes*mc.Start.PeakStackLen

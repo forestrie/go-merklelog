@@ -80,13 +80,16 @@ const (
 	MassifStartKeyFirstIndexFirstByte = MassifStartKeyMassifEnd
 
 	Epoch2038            = uint32(1)
-	MassifCurrentVersion = uint16(1)
+	MassifCurrentVersion = uint16(2)
 	// Version 0 was/is produced by the datatrails implementation, currently operated by OnID
-	// Version 2 introduces:
+	// Version 1 introduced:
 	// - a fixed 64 entries are always reserved for the peak stack, regardless of how many are
-	//   actually needed. this makes it possible to trivially compute the node &
+	//   actually needed. This makes it possible to trivially compute the node &
 	//   leaf counts knowing only the byte size of the massif and assuming the
-    //   version is >= 1
+	//   version is >= 1.
+	//
+	// Version 2 introduces:
+	// - a new, bounded index region layout (Bloom + Urkle), as described in the ARCs under arbor/docs/.
 )
 
 var (

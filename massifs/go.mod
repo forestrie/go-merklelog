@@ -2,9 +2,17 @@ module github.com/forestrie/go-merklelog/massifs
 
 go 1.24
 
-require github.com/forestrie/go-merklelog/mmr v0.0.2
+require (
+	github.com/forestrie/go-merklelog/bloom v0.0.0-00010101000000-000000000000
+	github.com/forestrie/go-merklelog/mmr v0.0.2
+	github.com/forestrie/go-merklelog/urkle v0.0.0-00010101000000-000000000000
+)
 
-replace github.com/forestrie/go-merklelog/mmr => ../mmr
+replace (
+	github.com/forestrie/go-merklelog/bloom => ../bloom
+	github.com/forestrie/go-merklelog/mmr => ../mmr
+	github.com/forestrie/go-merklelog/urkle => ../urkle
+)
 
 require (
 	github.com/google/uuid v1.6.0

@@ -96,3 +96,39 @@ $$f = 2^g = 1 << g$$
 ## Given a height, how many leaves are there ?
 
 From [3] we get $$f = 2^g$$ so $$f = 2^{h-1} = 1 << (h - 1), h > 0$$
+
+## Additional sizing identities (Urkle + Bloom, fixed massif index budgets)
+
+### Leaf count from `massifHeight`
+
+In the Forestrie massif format, `massifHeight` is a one-based height `h`.
+
+So the maximum leaf count in a massif (chunk) is:
+
+$$leafCount = 2^{massifHeight-1} = 1 << (massifHeight - 1), massifHeight > 0$$
+
+### Urkle node bound (binary trie / crit-bit)
+
+For an Urkle-style binary trie representing `leafCount = N` distinct keys:
+
+- leaf nodes: `N`
+- branch nodes: `<= N - 1`
+
+So a hard bound for the node store is:
+
+$$maxNodes \\le 2N - 1$$
+
+### Bloom sizing (per filter)
+
+Given:
+
+- `leafCount = N`
+- `bitsPerElement = b`
+
+Then:
+
+$$mBits = b * N$$
+
+And the byte length of one filter bitset is:
+
+$$bitsetBytes = \\lceil \\frac{mBits}{8} \\rceil$$

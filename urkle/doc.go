@@ -53,5 +53,24 @@ The package standardizes record formats for:
 
 See `arbor/docs/arc-urkle-format-and-support.md` for the full rationale.
 
+## Capacity limits and massif height
+
+The v2 index format is designed to live inside a fixed-size massif index
+region:
+
+- Massif height `h` (one-based) defines a fixed leaf capacity
+  `N = 2^(h-1)` via `LeafCountForMassifHeight`.
+- Leaf ordinals and leaf counts are encoded using 32-bit fields
+  (`LeafOrdinalBytes == 4` and uint32-backed counters), so we require
+  `N <= 2^32-1`.
+
+This means that while the underlying MMR permits theoretical heights up
+to a height index of 63 (see `massifs.MaxMMRHeight`), the Urkle index
+layout for v2 massifs effectively caps the usable massifHeight at 32
+when using the default 4-byte leafOrdinal encoding. `CheckMassifHeight`
+(and helpers such as `NewIndexViewFromMassifHeight`) enforce this bound
+so callers see a consistent limit regardless of whether they start from
+leafCount or massifHeight.
+
 */
 

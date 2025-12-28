@@ -17,7 +17,9 @@ func TestSizingV1(t *testing.T) {
 	total := RegionBytesV1(mBits)
 	require.Equal(t, uint64(HeaderBytesV1+Filters*2), total)
 
-	mBits2 := MBitsSafeCast(MBitsV1(8, 8)) // mBits=64, bitsetBytes=8, total=32+32=64
+	mBits64b := MBitsV1(8, 8) // mBits=64, bitsetBytes=8, total=32+32=64
+	require.Equal(t, uint64(64), mBits64b)
+	mBits2 := MBitsSafeCast(mBits64b)
 	require.Equal(t, uint32(64), mBits2)
 	total = RegionBytesV1(mBits2)
 	require.Equal(t, uint64(64), total)

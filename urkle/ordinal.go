@@ -7,11 +7,15 @@ var (
 	ErrLeafOrdinalNotPresent = errors.New("urkle: leaf ordinal not present")
 )
 
-// LeafOrdinalKey16 returns the idtimestamp for leafOrdinal if it is present, otherwise 0.
+// LeafOrdinalKey16 returns the idtimestamp for leafOrdinal if it is present,
+// otherwise 0.
 //
 // Presence is decided by nextLeaf (the number of filled leaves in the chunk).
 //
-// NOTE: This only makes sense if nextLeaf is authenticated by higher-level chunk metadata.
+// NOTE: All valid idtimestamps are strictly non-zero in this system, so a
+// return value of 0 can be safely interpreted as "not present".
+// NOTE: This only makes sense if nextLeaf is authenticated by higher-level
+// chunk metadata.
 func LeafOrdinalKey16(v IndexView, leafOrdinal uint16, nextLeaf uint32) uint64 {
 	ord := uint32(leafOrdinal)
 	if ord >= nextLeaf {
@@ -26,9 +30,11 @@ func LeafOrdinalKey16(v IndexView, leafOrdinal uint16, nextLeaf uint32) uint64 {
 	return LeafKey(v.LeafTable, ord)
 }
 
-// LeafOrdinalInclusionProof returns an inclusion proof for the leaf at leafOrdinal.
+// LeafOrdinalInclusionProof returns an inclusion proof for the leaf at
+// leafOrdinal.
 //
-// It returns the proof and the recovered key (idtimestamp).
+// It returns the proof and the recovered key (idtimestamp). All valid
+// idtimestamps are strictly non-zero.
 func LeafOrdinalInclusionProof(v IndexView, leafOrdinal uint16, nextLeaf uint32, root Ref) (InclusionProof, uint64, error) {
 	ord := uint32(leafOrdinal)
 	if ord >= nextLeaf {

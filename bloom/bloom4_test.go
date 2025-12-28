@@ -11,7 +11,9 @@ func TestBloomV1InsertAndQuery(t *testing.T) {
 	bitsPerElement := uint64(10)
 	k := uint8(7)
 
-	mBits := MBitsSafeCast(MBitsV1(leafCount, bitsPerElement))
+	mBits64 := MBitsV1(leafCount, bitsPerElement)
+	require.Equal(t, bitsPerElement, mBits64/leafCount)
+	mBits := MBitsSafeCast(mBits64)
 	require.NotZero(t, mBits)
 	total := RegionBytesV1(mBits)
 
@@ -67,7 +69,9 @@ func TestBloomV1RejectsBadInputs(t *testing.T) {
 	bitsPerElement := uint64(8)
 	k := uint8(5)
 
-	mBits := MBitsSafeCast(MBitsV1(leafCount, bitsPerElement))
+	mBits64 := MBitsV1(leafCount, bitsPerElement)
+	require.Equal(t, bitsPerElement, mBits64/leafCount)
+	mBits := MBitsSafeCast(mBits64)
 	require.NotZero(t, mBits)
 	total := RegionBytesV1(mBits)
 
@@ -93,7 +97,9 @@ func TestBloomV1RejectsUninitializedRegion(t *testing.T) {
 	leafCount := uint64(8)
 	bitsPerElement := uint64(8)
 
-	mBits := MBitsSafeCast(MBitsV1(leafCount, bitsPerElement))
+	mBits64 := MBitsV1(leafCount, bitsPerElement)
+	require.Equal(t, bitsPerElement, mBits64/leafCount)
+	mBits := MBitsSafeCast(mBits64)
 	require.NotZero(t, mBits)
 	total := RegionBytesV1(mBits)
 
@@ -104,4 +110,28 @@ func TestBloomV1RejectsUninitializedRegion(t *testing.T) {
 
 	err = InsertV1(region, 0, make([]byte, ValueBytes))
 	require.ErrorIs(t, err, ErrNotInitialized)
+}
+
+func TestBloomV1RegionTooSmallAfterHeader(t *testing.T) {
+	leafCount := uint64(8)
+	bitsPerElement := uint64(8)
+	k := uint8(5)
+
+	mBits64 := MBitsV1(leafCount, bitsPerElement)
+	require.Equal(t, bitsPerElement, mBits64/leafCount)
+	mBits := MBitsSafeCast(mBits64)
+	require.NotZero(t, mBits)
+
+	full := make([]byte, RegionBytesV1(mBits))
+	require.NoError(t, InitV1(full, leafCount, bitsPerElement, k))
+
+	bitsetBytes := BitsetBytesV1(mBits)
+	shortLen := HeaderBytesV1 + int(bitsetBytes) - 1
+	region := full[:shortLen]
+
+	err := InsertV1(region, 0, make([]byte, ValueBytes))
+	require.ErrorIs(t, err, ErrBadRegionSize)
+
+	_, err = MaybeContainsV1(region, 0, make([]byte, ValueBytes))
+	require.ErrorIs(t, err, ErrBadRegionSize)
 }

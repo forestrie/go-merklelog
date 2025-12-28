@@ -57,7 +57,7 @@ func EncodeFrontierV1(dst []byte, st FrontierStateV1) error {
 	writeU32BE(dst[28:32], st.NextLeaf)
 
 	off := frontierFramesOffBytes
-	for i := 0; i < FrontierMaxDepth; i++ {
+	for i := range FrontierMaxDepth {
 		dst[off+0] = st.Frames[i].Bit
 		dst[off+1] = 0
 		dst[off+2] = 0
@@ -100,8 +100,15 @@ func DecodeFrontierV1(src []byte) (st FrontierStateV1, ok bool, err error) {
 	st.Depth = src[24]
 	st.NextLeaf = readU32BE(src[28:32])
 
+	if st.Depth > FrontierMaxDepth {
+		return FrontierStateV1{}, false, ErrFrontierBadSize
+	}
+	if st.Depth > 0 && st.Pending == NoRef {
+		return FrontierStateV1{}, false, ErrFrontierBadState
+	}
+
 	off := frontierFramesOffBytes
-	for i := 0; i < FrontierMaxDepth; i++ {
+	for i := range FrontierMaxDepth {
 		st.Frames[i].Bit = src[off+0]
 		st.Frames[i].Left = Ref(readU32BE(src[off+4 : off+8]))
 		off += FrontierFrameBytes

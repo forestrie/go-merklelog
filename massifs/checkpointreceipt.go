@@ -37,6 +37,22 @@ const (
 	// single consistency proof a checkpoint receipt carries (draft:
 	// consistency-proof).
 	checkpointKeyConsistencyProof int64 = -2
+
+	// COSEPrivateStart is the start of the COSE private-use label space
+	// (numbers < -65535 are reserved for private use). Allocation in this
+	// range MUST be coordinated Forestrie wide.
+	COSEPrivateStart int64 = -65535
+
+	// SealPeakReceiptsLabel is the private-use unprotected header label under
+	// which a checkpoint carries pre-signed peak inclusion receipts: one
+	// detached-payload COSE_Sign1 per accumulator peak, signed by the log
+	// signer at seal time (payload = the peak, per the draft-bryce Receipt of
+	// Inclusion). Any holder of the checkpoint and replicated massif data can
+	// mint a standards-compliant, privacy-preserving inclusion receipt from
+	// these without the signing key (see NewReceipt). The label is allocated
+	// by subtracting the IANA registered verifiable-proofs label from the
+	// private-use start.
+	SealPeakReceiptsLabel int64 = COSEPrivateStart - checkpointLabelVDP
 )
 
 // coseSign1Tag is the CBOR initial byte for tag 18 (COSE_Sign1). Tag values
@@ -67,6 +83,11 @@ type CheckpointReceipt struct {
 	ProtectedHeader []byte
 	Signature       []byte
 	Proof           ConsistencyProof
+	// PeakReceipts, when present, are the pre-signed peak inclusion receipts
+	// carried under SealPeakReceiptsLabel: one encoded detached-payload
+	// COSE_Sign1 per accumulator peak, in accumulator (descending height)
+	// order.
+	PeakReceipts [][]byte
 }
 
 // canonicalReceiptCBOR encodes deterministically (RFC 8949 canonical) so
@@ -190,7 +211,12 @@ func DecodeConsistencyProof(bstr []byte) (ConsistencyProof, error) {
 // protectedHeader is the already-CBOR-encoded protected header bytes (carried
 // verbatim so the on-chain signature check sees the signed bytes); signature
 // is the raw COSE signature over SigStructure(protectedHeader, detached).
-func EncodeCheckpointReceipt(protectedHeader []byte, proof ConsistencyProof, signature []byte) ([]byte, error) {
+// extraUnprotected labels (pre-signed peak receipts, delegation material) are
+// merged into the unprotected header; they do not affect the signature.
+func EncodeCheckpointReceipt(
+	protectedHeader []byte, proof ConsistencyProof, signature []byte,
+	extraUnprotected ...map[int64]cbor.RawMessage,
+) ([]byte, error) {
 	proofBstr, err := EncodeConsistencyProof(proof)
 	if err != nil {
 		return nil, err
@@ -202,6 +228,14 @@ func EncodeCheckpointReceipt(protectedHeader []byte, proof ConsistencyProof, sig
 		return nil, fmt.Errorf("encode verifiable-proofs: %w", err)
 	}
 	unprotected := map[int64]cbor.RawMessage{checkpointLabelVDP: verifiableProofs}
+	for _, extras := range extraUnprotected {
+		for label, value := range extras {
+			if _, exists := unprotected[label]; exists {
+				return nil, fmt.Errorf("duplicate unprotected header label %d", label)
+			}
+			unprotected[label] = value
+		}
+	}
 
 	// Tagged COSE_Sign1 (CBOR tag 18): [protected: bstr, unprotected: map,
 	// payload: null (detached), signature: bstr]. The tag lets generic COSE
@@ -262,9 +296,18 @@ func DecodeCheckpointReceipt(data []byte) (CheckpointReceipt, error) {
 	if err != nil {
 		return CheckpointReceipt{}, err
 	}
+
+	var peakReceipts [][]byte
+	if raw, ok := unprotected[SealPeakReceiptsLabel]; ok {
+		if err := cbor.Unmarshal(raw, &peakReceipts); err != nil {
+			return CheckpointReceipt{}, fmt.Errorf("decode peak receipts: %w", err)
+		}
+	}
+
 	return CheckpointReceipt{
 		ProtectedHeader: protected,
 		Signature:       signature,
 		Proof:           proof,
+		PeakReceipts:    peakReceipts,
 	}, nil
 }

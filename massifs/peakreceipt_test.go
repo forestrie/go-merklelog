@@ -7,6 +7,8 @@ import (
 	"crypto/rand"
 	"testing"
 
+	"github.com/fxamacker/cbor/v2"
+
 	commoncbor "github.com/forestrie/go-merklelog/massifs/cbor"
 	commoncose "github.com/forestrie/go-merklelog/massifs/cose"
 	"github.com/forestrie/go-merklelog/mmr"
@@ -140,4 +142,37 @@ func TestNewReceiptRequiresPeakReceipts(t *testing.T) {
 
 	_, err = NewReceipt(context.Background(), store, newES256Verifier(t, &key.PublicKey), 3, 0)
 	require.ErrorContains(t, err, "no pre-signed peak receipts")
+}
+
+// Unmodelled unprotected labels (delegation material) round-trip through
+// encode/decode via Extras, without affecting the checkpoint signature.
+func TestCheckpointReceiptUnprotectedExtrasRoundTrip(t *testing.T) {
+	store, sizes := newFixtureMMR(t, 3)
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	signer := commoncose.NewTestCoseSigner(t, *key)
+
+	proof, err := BuildConsistencyProof(store, 0, sizes[2])
+	require.NoError(t, err)
+	accumulator, err := mmr.PeakHashes(store, sizes[2]-1)
+	require.NoError(t, err)
+
+	delegation, err := cbor.Marshal([]byte("opaque-delegation-material"))
+	require.NoError(t, err)
+
+	data, err := SignCheckpointReceipt(
+		signer, proof, accumulator,
+		WithPeakReceipts([]byte("kid")),
+		WithUnprotectedExtras(map[int64]cbor.RawMessage{SealDelegationProofLabel: delegation}))
+	require.NoError(t, err)
+
+	r, err := DecodeCheckpointReceipt(data)
+	require.NoError(t, err)
+	require.Equal(t, cbor.RawMessage(delegation), r.Extras[SealDelegationProofLabel])
+	require.NotContains(t, r.Extras, SealPeakReceiptsLabel, "modelled labels are not duplicated into Extras")
+
+	// The extras ride outside the signature: the receipt still verifies.
+	_, err = VerifyCheckpointReceipt(store, &r, newES256Verifier(t, &key.PublicKey))
+	require.NoError(t, err)
 }

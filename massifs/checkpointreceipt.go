@@ -53,6 +53,16 @@ const (
 	// by subtracting the IANA registered verifiable-proofs label from the
 	// private-use start.
 	SealPeakReceiptsLabel int64 = COSEPrivateStart - checkpointLabelVDP
+
+	// SealDelegationProofLabel is the private-use unprotected header label
+	// under which a checkpoint carries the univocity on-chain delegation
+	// proof: the root key's signature binding the delegated checkpoint
+	// signing key to (logId, mmrStart, mmrEnd). The publisher wires it into
+	// the publishCheckpoint calldata delegationProof. The value is opaque to
+	// this package (an arbor-defined CBOR wire object, plan-0003
+	// OnchainDelegationProof); it is exposed via CheckpointReceipt.Extras.
+	// The 1000 offset mirrors the legacy delegation certificate label.
+	SealDelegationProofLabel int64 = COSEPrivateStart - 1000
 )
 
 // coseSign1Tag is the CBOR initial byte for tag 18 (COSE_Sign1). Tag values
@@ -88,6 +98,12 @@ type CheckpointReceipt struct {
 	// COSE_Sign1 per accumulator peak, in accumulator (descending height)
 	// order.
 	PeakReceipts [][]byte
+	// Extras carries the unprotected header labels this decoder does not
+	// model (delegation material under SealDelegationProofLabel,
+	// certificates), values verbatim. Nil when there are none. Replication
+	// does not depend on this - it copies the stored object bytes - but
+	// consumers such as the publisher read their labels from here.
+	Extras map[int64]cbor.RawMessage
 }
 
 // canonicalReceiptCBOR encodes deterministically (RFC 8949 canonical) so
@@ -304,10 +320,22 @@ func DecodeCheckpointReceipt(data []byte) (CheckpointReceipt, error) {
 		}
 	}
 
+	var extras map[int64]cbor.RawMessage
+	for label, value := range unprotected {
+		if label == checkpointLabelVDP || label == SealPeakReceiptsLabel {
+			continue
+		}
+		if extras == nil {
+			extras = map[int64]cbor.RawMessage{}
+		}
+		extras[label] = value
+	}
+
 	return CheckpointReceipt{
 		ProtectedHeader: protected,
 		Signature:       signature,
 		Proof:           proof,
 		PeakReceipts:    peakReceipts,
+		Extras:          extras,
 	}, nil
 }

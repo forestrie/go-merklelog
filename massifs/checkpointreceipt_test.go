@@ -86,6 +86,8 @@ func TestCheckpointReceiptRoundTrip(t *testing.T) {
 
 	encoded, err := EncodeCheckpointReceipt(protected, proof, signature)
 	require.NoError(t, err)
+	require.Equal(t, byte(0xd2), encoded[0],
+		"receipt must be a tagged COSE_Sign1 (CBOR tag 18)")
 
 	got, err := DecodeCheckpointReceipt(encoded)
 	require.NoError(t, err)

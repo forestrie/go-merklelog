@@ -39,6 +39,10 @@ const (
 	checkpointKeyConsistencyProof int64 = -2
 )
 
+// coseSign1Tag is the CBOR initial byte for tag 18 (COSE_Sign1). Tag values
+// 0..23 encode in the tag's single initial byte: 0xc0 | 18 = 0xd2.
+const coseSign1Tag byte = 0xd2
+
 // ConsistencyProof is the draft-bryce consistency proof (checkpoint format v3):
 // the accumulator for tree-size-1 is a prefix of the accumulator for
 // tree-size-2. Nodes are the raw hash bytes used throughout go-merklelog.
@@ -95,7 +99,7 @@ func DetachedPayload(accumulator [][]byte) []byte {
 }
 
 // SigStructure returns the COSE Sign1 Sig_structure the signature is computed
-// over (RFC 9052): [ "Signature1", protected, external_aad = h'', payload ].
+// over (RFC 9052): [ "Signature1", protected, external_aad = h”, payload ].
 // Matches univocity cosecbor.buildSigStructure so a receipt signed here
 // verifies on-chain.
 func SigStructure(protectedHeader, payload []byte) []byte {
@@ -199,9 +203,12 @@ func EncodeCheckpointReceipt(protectedHeader []byte, proof ConsistencyProof, sig
 	}
 	unprotected := map[int64]cbor.RawMessage{checkpointLabelVDP: verifiableProofs}
 
-	// COSE Sign1 = [protected: bstr, unprotected: map, payload: null, sig: bstr]
+	// Tagged COSE_Sign1 (CBOR tag 18): [protected: bstr, unprotected: map,
+	// payload: null (detached), signature: bstr]. The tag lets generic COSE
+	// tooling recognise the object. The univocity contract takes pre-decoded
+	// parts and never parses this envelope, so it is unaffected.
 	sign1 := []any{protectedHeader, unprotected, nil, signature}
-	out, err := canonicalReceiptCBOR.Marshal(sign1)
+	out, err := canonicalReceiptCBOR.Marshal(cbor.Tag{Number: 18, Content: sign1})
 	if err != nil {
 		return nil, fmt.Errorf("encode checkpoint receipt: %w", err)
 	}
@@ -211,6 +218,14 @@ func EncodeCheckpointReceipt(protectedHeader []byte, proof ConsistencyProof, sig
 // DecodeCheckpointReceipt decodes a format-v3 checkpoint object into its
 // pre-decoded parts.
 func DecodeCheckpointReceipt(data []byte) (CheckpointReceipt, error) {
+	// Unwrap the COSE_Sign1 tag (18) if present.
+	if len(data) > 0 && data[0] == coseSign1Tag {
+		var tag cbor.RawTag
+		if err := cbor.Unmarshal(data, &tag); err != nil {
+			return CheckpointReceipt{}, fmt.Errorf("decode COSE_Sign1 tag: %w", err)
+		}
+		data = tag.Content
+	}
 	var arr []cbor.RawMessage
 	if err := cbor.Unmarshal(data, &arr); err != nil {
 		return CheckpointReceipt{}, fmt.Errorf("decode COSE Sign1 array: %w", err)

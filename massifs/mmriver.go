@@ -8,10 +8,8 @@ import (
 
 	"github.com/fxamacker/cbor/v2"
 
-	commoncbor "github.com/forestrie/go-merklelog/massifs/cbor"
 	commoncose "github.com/forestrie/go-merklelog/massifs/cose"
 	"github.com/forestrie/go-merklelog/mmr"
-	"github.com/veraison/go-cose"
 )
 
 // MMRIVER COSE Receipts to accompany our COSE MMRIVER seals
@@ -120,81 +118,4 @@ func VerifySignedInclusionReceipt(
 		return false, nil, nil
 	}
 	return true, root, nil
-}
-
-type verifiedContextGetter interface {
-	GetContextVerified(
-		ctx context.Context, massifIndex uint32,
-		opts ...Option,
-	) (*VerifiedContext, error)
-}
-
-// NewReceipt returns a COSE receipt for the given tenantIdentity and mmrIndex
-func NewReceipt(
-	ctx context.Context,
-	reader ObjectReader,
-	codec *commoncbor.CBORCodec,
-	verifier cose.Verifier,
-	massifHeight uint8,
-	mmrIndex uint64,
-) (*commoncose.CoseSign1Message, error) {
-	massifIndex := uint32(MassifIndexFromMMRIndex(massifHeight, mmrIndex))
-
-	verified, err := GetContextVerified(ctx, reader, codec, verifier, massifIndex)
-	if err != nil {
-		return nil, fmt.Errorf(
-			"%w: failed to get verified context %d", err, massifIndex)
-	}
-
-	msg, state := verified.Sign1Message, verified.MMRState
-
-	proof, err := mmr.InclusionProof(&verified.MassifContext, state.MMRSize-1, mmrIndex)
-	if err != nil {
-		return nil, fmt.Errorf(
-			"failed to generating inclusion proof: %d in MMR(%d), %v",
-			mmrIndex, verified.MMRState.MMRSize, err)
-	}
-
-	peakIndex := mmr.PeakIndex(mmr.LeafCount(state.MMRSize), len(proof))
-
-	// NOTE: The old-accumulator compatibility property, from
-	// https://eprint.iacr.org/2015/718.pdf, along with the COSE protected &
-	// unprotected buckets, is why we can just pre sign the receipts.
-	// As long as the receipt consumer is convinced of the logs consistency (not split view),
-	// it does not matter which accumulator state the receipt is signed against.
-
-	var peaksHeader MMRStateReceipts
-	err = cbor.Unmarshal(msg.Headers.RawUnprotected, &peaksHeader)
-	if err != nil {
-		return nil, fmt.Errorf(
-			"%w: failed decoding peaks header: seal %d", err, massifIndex)
-	}
-	if peakIndex >= len(peaksHeader.PeakReceipts) {
-		return nil, fmt.Errorf(
-			"%w: peaks header containes to few peak receipts: seal %d", err, massifIndex)
-	}
-
-	// This is an array of marshaled COSE_Sign1's
-	receiptMsg := peaksHeader.PeakReceipts[peakIndex]
-	signed, err := commoncose.NewCoseSign1MessageFromCBOR(
-		receiptMsg, commoncose.WithDecOptions(commoncbor.DecOptions))
-	if err != nil {
-		return nil, fmt.Errorf(
-			"%w: failed to decode pre-signed receipt for: %d in MMR(%d)",
-			err, mmrIndex, state.MMRSize)
-	}
-
-	// signed.Headers.RawProtected = nil
-	signed.Headers.RawUnprotected = nil
-
-	verifiableProofs := MMRiverVerifiableProofs{
-		InclusionProofs: []MMRiverInclusionProof{{
-			Index:         mmrIndex,
-			InclusionPath: proof,
-		}},
-	}
-
-	signed.Headers.Unprotected[VDSCoseReceiptProofsTag] = verifiableProofs
-
-	return signed, nil
 }

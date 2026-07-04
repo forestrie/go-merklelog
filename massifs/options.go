@@ -14,10 +14,15 @@ type StorageOptions struct {
 	COSEVerifier    cose.Verifier
 }
 type VerifyOptions struct {
-	Check            *Checkpoint
+	// Check is the checkpoint to verify against. If nil, the verification
+	// entry points fetch the checkpoint for the massif being verified.
+	Check *Checkpoint
+	// TrustedBaseState is an optional, previously verified, (size, peaks)
+	// state from a trusted source to additionally check consistency against.
 	TrustedBaseState *MMRState
-	CBORCodec        *commoncbor.CBORCodec
-	COSEVerifier     cose.Verifier
+	// COSEVerifier verifies the checkpoint receipt signature. Required:
+	// format-v3 receipts carry no key material.
+	COSEVerifier cose.Verifier
 }
 
 // Option is a generic option type used for storage implementations.
@@ -60,14 +65,6 @@ func WithVerifyTrustedState(state MMRState) Option {
 		opts.TrustedBaseState = &state
 	}
 }
-func VerifyWithCBORCodec(codec *commoncbor.CBORCodec) func(any) {
-	return func(opts any) {
-		if verifyOpts, ok := opts.(*VerifyOptions); ok {
-			verifyOpts.CBORCodec = codec
-		}
-	}
-}
-
 func VerifyWithCOSEVerifier(verifier cose.Verifier) func(any) {
 	return func(opts any) {
 		if verifyOpts, ok := opts.(*VerifyOptions); ok {

@@ -2,7 +2,9 @@ package massifs
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -12,6 +14,7 @@ import (
 	"github.com/forestrie/go-merklelog/massifs/storage"
 	"github.com/forestrie/go-merklelog/mmr"
 	"github.com/stretchr/testify/require"
+	"github.com/veraison/go-cose"
 )
 
 // memReader is a minimal in-memory ObjectReader for read/verify-only tests.
@@ -123,103 +126,63 @@ func buildLegacyBlobMassif0(t *testing.T, blobVersion uint16, massifHeight uint8
 	return mc
 }
 
-func signCheckpointV0(t *testing.T, mc *MassifContext) []byte {
+// signCheckpointV3 seals the massif with a format-v3 checkpoint receipt
+// (draft-bryce COSE Receipt of Consistency) signed by a fresh ES256 key,
+// returning the encoded receipt and a verifier for the signing key.
+func signCheckpointV3(t *testing.T, mc *MassifContext) ([]byte, cose.Verifier) {
 	t.Helper()
 	require.Greater(t, mc.RangeCount(), uint64(0))
 
-	cborCodec, err := NewCBORCodec()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
-	rs := NewRootSigner("test-issuer", cborCodec)
+	signer := commoncose.NewTestCoseSigner(t, *key)
 
-	key := TestingGenerateECKey(t, elliptic.P256())
-	signer := commoncose.NewTestCoseSigner(t, key)
-	pubKey, err := signer.LatestPublicKey()
+	proof, err := BuildConsistencyProof(mc, 0, mc.RangeCount())
 	require.NoError(t, err)
-
-	root, err := mmr.GetRoot(mc.RangeCount(), mc, sha256.New())
+	accumulator, err := mmr.PeakHashes(mc, mc.RangeCount()-1)
 	require.NoError(t, err)
 
-	state := MMRState{
-		// Version omitted (0) -> legacy seal format (LegacySealRoot).
-		MMRSize:         mc.RangeCount(),
-		LegacySealRoot:  root,
-		Timestamp:       1234,
-		IDTimestamp:     mc.Start.LastID,
-		CommitmentEpoch: mc.Start.CommitmentEpoch,
-	}
-
-	signed, err := rs.Sign1(signer, signer.KeyIdentifier(), pubKey, "test-subject", state, nil)
+	signed, err := SignCheckpointReceipt(signer, proof, accumulator)
 	require.NoError(t, err)
-	return signed
+	return signed, newES256Verifier(t, &key.PublicKey)
 }
 
-func signCheckpointV2(t *testing.T, mc *MassifContext) []byte {
-	t.Helper()
-	require.Greater(t, mc.RangeCount(), uint64(0))
-
-	cborCodec, err := NewCBORCodec()
-	require.NoError(t, err)
-	rs := NewRootSigner("test-issuer", cborCodec)
-
-	key := TestingGenerateECKey(t, elliptic.P256())
-	signer := commoncose.NewTestCoseSigner(t, key)
-	pubKey, err := signer.LatestPublicKey()
-	require.NoError(t, err)
-
-	peaks, err := mmr.PeakHashes(mc, mc.RangeCount()-1)
-	require.NoError(t, err)
-
-	state := MMRState{
-		Version:         int(MMRStateVersion2),
-		MMRSize:         mc.RangeCount(),
-		Peaks:           peaks,
-		Timestamp:       1234,
-		IDTimestamp:     mc.Start.LastID,
-		CommitmentEpoch: mc.Start.CommitmentEpoch,
-	}
-
-	signed, err := rs.Sign1(signer, signer.KeyIdentifier(), pubKey, "test-subject", state, nil)
-	require.NoError(t, err)
-	return signed
-}
-
-func TestLegacyBlobFormatV0_ReadAndVerify_LegacyCheckpointV0(t *testing.T) {
-	// Blob format v0 (legacy), verify using MMRStateVersion0 path (LegacySealRoot + bagged consistency).
+func TestLegacyBlobFormatV0_ReadAndVerify_CheckpointV3(t *testing.T) {
+	// Blob format v0 (legacy), verified against a format-v3 checkpoint
+	// receipt. Only the checkpoint (seal) format changed in the v3 cutover;
+	// legacy massif blob formats remain readable.
 	mc := buildLegacyBlobMassif0(t, 0 /*blobVersion*/, 3 /*massifHeight*/, 2 /*leaves*/)
-	signed := signCheckpointV0(t, &mc)
+	signed, verifier := signCheckpointV3(t, &mc)
 
 	store := &memReader{
 		massifs:    map[uint32][]byte{0: mc.Data},
 		checkpoint: map[uint32][]byte{0: signed},
 	}
 
-	codec, err := NewCBORCodec()
-	require.NoError(t, err)
-
-	vc, err := GetContextVerified(context.Background(), store, &codec, nil, 0)
+	vc, err := GetContextVerified(context.Background(), store, verifier, 0)
 	require.NoError(t, err)
 	require.Equal(t, uint16(0), vc.Start.Version)
-	require.Equal(t, int(MMRStateVersion0), vc.MMRState.Version)
+	require.Equal(t, mc.RangeCount(), vc.Checkpoint.MMRSize)
+	require.NotEmpty(t, vc.Accumulator)
 	require.NotEmpty(t, vc.ConsistentRoots)
 }
 
-func TestLegacyBlobFormatV1_ReadAndVerify_CheckpointV2(t *testing.T) {
-	// Blob format v1 (legacy fixed peak stack allocation), verify using v2 checkpoint format (peaks).
+func TestLegacyBlobFormatV1_ReadAndVerify_CheckpointV3(t *testing.T) {
+	// Blob format v1 (legacy fixed peak stack allocation), verified against a
+	// format-v3 checkpoint receipt.
 	mc := buildLegacyBlobMassif0(t, 1 /*blobVersion*/, 3 /*massifHeight*/, 2 /*leaves*/)
-	signed := signCheckpointV2(t, &mc)
+	signed, verifier := signCheckpointV3(t, &mc)
 
 	store := &memReader{
 		massifs:    map[uint32][]byte{0: mc.Data},
 		checkpoint: map[uint32][]byte{0: signed},
 	}
 
-	codec, err := NewCBORCodec()
-	require.NoError(t, err)
-
-	vc, err := GetContextVerified(context.Background(), store, &codec, nil, 0)
+	vc, err := GetContextVerified(context.Background(), store, verifier, 0)
 	require.NoError(t, err)
 	require.Equal(t, uint16(1), vc.Start.Version)
-	require.Equal(t, int(MMRStateVersion2), vc.MMRState.Version)
+	require.Equal(t, mc.RangeCount(), vc.Checkpoint.MMRSize)
+	require.NotEmpty(t, vc.Accumulator)
 	require.NotEmpty(t, vc.ConsistentRoots)
 }
 
@@ -235,6 +198,3 @@ func TestLegacyBlobFormatV0_IsRejectedByGetAppendContext(t *testing.T) {
 	require.Error(t, err)
 	require.True(t, errors.Is(err, storage.ErrLogEmpty) || err != nil)
 }
-
-
-

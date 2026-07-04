@@ -3,13 +3,10 @@ package massifs
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 
-	commoncbor "github.com/forestrie/go-merklelog/massifs/cbor"
 	"github.com/forestrie/go-merklelog/massifs/storage"
-	"github.com/forestrie/go-merklelog/mmr"
 	"github.com/veraison/go-cose"
 )
 
@@ -18,19 +15,21 @@ var (
 	ErrSourceLogInconsistentRootState = errors.New("the local replica root state disagrees with the remote")
 )
 
-// ReplaceVerifiedContext stores the massif data and its associated checkpoint message
-// into the provided ObjectWriter. It first writes the massif data, then marshals
-// and writes the checkpoint message as CBOR. If any operation fails, an error is returned.
+// ReplaceVerifiedContext stores the massif data and its associated checkpoint
+// into the provided ObjectWriter. It first writes the massif data, then writes
+// the checkpoint object bytes verbatim. The checkpoint is copied rather than
+// re-encoded so unprotected header content the decoder does not model
+// survives replication. If any operation fails, an error is returned.
 //
 // Parameters:
 //
 //	ctx - the context for controlling cancellation and deadlines
 //	objectWriter - the writer interface used to store massif data and checkpoint
-//	vc - the VerifiedContext containing the massif data and checkpoint message
+//	vc - the VerifiedContext containing the massif data and checkpoint
 //
 // Returns:
 //
-//	error - non-nil if storing data or marshaling the checkpoint fails
+//	error - non-nil if storing the data fails
 func ReplaceVerifiedContext(ctx context.Context, objectWriter ObjectWriter, vc *VerifiedContext) error {
 	var err error
 
@@ -40,16 +39,10 @@ func ReplaceVerifiedContext(ctx context.Context, objectWriter ObjectWriter, vc *
 		return fmt.Errorf("failed to store massif data: %w", err)
 	}
 
-	data, err := vc.Sign1Message.MarshalCBOR()
-	if err != nil {
-		return fmt.Errorf("failed to marshal checkpoint message: %w", err)
-	}
-
-	return objectWriter.Put(ctx, vc.MassifContext.Start.MassifIndex, storage.ObjectCheckpoint, data, false)
+	return objectWriter.Put(ctx, vc.MassifContext.Start.MassifIndex, storage.ObjectCheckpoint, vc.Checkpoint.Raw, false)
 }
 
 type VerifyingReplicator struct {
-	CBORCodec    commoncbor.CBORCodec
 	COSEVerifier cose.Verifier
 
 	// Source provides the upstream (source of truth) log to replicate from.
@@ -62,11 +55,9 @@ type VerifyingReplicator struct {
 //
 // within the specified massif index range [startMassif, endMassif]. It ensures that the sink
 // replica is consistent with the source by verifying the integrity of each massif and its seal.
-// The function promotes legacy (v0) massif states to the current (v1) format as needed for
-// compatibility and consistency checks. If a massif is missing or outdated in the sink, it is
-// copied from the source after verification. The process skips massifs that have already been
-// verified and replicated in the sink. Returns an error if verification or replication fails at
-// any step.
+// If a massif is missing or outdated in the sink, it is copied from the source after
+// verification. The process skips massifs that have already been verified and replicated in
+// the sink. Returns an error if verification or replication fails at any step.
 //
 // Parameters:
 //
@@ -101,55 +92,20 @@ func (v *VerifyingReplicator) ReplicateVerifiedUpdates(
 		return false
 	}
 
-	// on demand promotion of a v0 state to a v1 state, for compatibility with the consistency check.
-	trustedBaseState := func(sink *VerifiedContext) (MMRState, error) {
-		if sink.MMRState.Version > int(MMRStateVersion0) {
-			return sink.MMRState, nil
-		}
-
-		// At this point we have a sink seal in v0 format and we expect the
-		// source seal to be in v1 format.
-		// We need to promote the legacy base state to a V1 state for the
-		// consistency check.  This is a one way operation, and the legacy seal
-		// root is discarded.  Once the seal for the open massif is upgraded,
-		// this case will never be encountered again for that tenant.
-
-		peaks, err := mmr.PeakHashes(sink, sink.MMRState.MMRSize-1)
-		if err != nil {
-			return MMRState{}, err
-		}
-		root := mmr.HashPeaksRHS(sha256.New(), peaks)
-		if !bytes.Equal(root, sink.MMRState.LegacySealRoot) {
-			return MMRState{}, fmt.Errorf("legacy seal root does not match the bagged peaks")
-		}
-		state := sink.MMRState
-		state.Version = int(MMRStateVersion1)
-		// Keep the legacy seal root so that we can verify in the case where the source is a V0 seal
-		// state.LegacySealRoot = nil
-		state.Peaks = peaks
-		return state, nil
-	}
-
-	// if err := v.Sink.SelectLog(ctx, logID); err != nil {
-	// 	return fmt.Errorf("failed to select sink log %s: %w", logID, err)
-	// }
-
-	// if err := v.Source.SelectLog(ctx, logID); err != nil {
-	// 	return fmt.Errorf("failed to select source log %s: %w", logID, err)
-	// }
-
 	// Read the most recently verified state from the sink store. The
 	// verification ensures the sink replica has not been corrupted, but this
 	// check trusts the seal stored locally with the head massif
 	sinkHeadCheckpointIndex, err := v.Sink.HeadIndex(ctx, storage.ObjectCheckpoint)
-	if err != nil {
+	if err != nil && !isNilOrNotFound(err) {
 		return err
 	}
 
-	sink, err := GetContextVerified(
-		ctx, v.Sink, &v.CBORCodec, v.COSEVerifier, sinkHeadCheckpointIndex)
-	if !isNilOrNotFound(err) {
-		return err
+	var sink *VerifiedContext
+	if err == nil {
+		sink, err = GetContextVerified(ctx, v.Sink, v.COSEVerifier, sinkHeadCheckpointIndex)
+		if !isNilOrNotFound(err) {
+			return err
+		}
 	}
 
 	// We always verify up to the requested massif, but we do not re-verify
@@ -193,20 +149,19 @@ func (v *VerifyingReplicator) ReplicateVerifiedUpdates(
 
 		// Note: we have to fetch the seal before the massif, otherwise we can lose a race with the builder
 		// See bug#10530
-		checkpt, err := GetCheckpoint(ctx, v.Source, v.CBORCodec, i)
+		checkpt, err := GetCheckpoint(ctx, v.Source, i)
 		if err != nil {
 			return err
 		}
 
 		sourceOpts := []Option{WithVerifyCheckpoint(&checkpt)}
 		if sink != nil {
-			var baseState MMRState
-			// Promote the trusted base state to a V1 state if it is a V0 state.
-			baseState, err = trustedBaseState(sink)
-			if err != nil {
-				return err
-			}
-			sourceOpts = append(sourceOpts, WithVerifyTrustedState(baseState))
+			// The sink's sealed accumulator was verified when the sink context
+			// was read; require the source to be consistent with it.
+			sourceOpts = append(sourceOpts, WithVerifyTrustedState(MMRState{
+				MMRSize: sink.Checkpoint.MMRSize,
+				Peaks:   sink.Accumulator,
+			}))
 		}
 
 		// On the first iteration sink is *either* the predecessor to
@@ -215,7 +170,7 @@ func (v *VerifyingReplicator) ReplicateVerifiedUpdates(
 		// source is still incomplete it means there is no subsequent massif to
 		// read)
 		source, err := GetContextVerified(
-			ctx, v.Source, &v.CBORCodec, v.COSEVerifier, i, sourceOpts...)
+			ctx, v.Source, v.COSEVerifier, i, sourceOpts...)
 		if err != nil {
 			// both the source massif and its seal must be present for the
 			// verification to succeed, so we don't filter using isBlobNotFound
@@ -224,7 +179,7 @@ func (v *VerifyingReplicator) ReplicateVerifiedUpdates(
 		}
 
 		// read the sink massif, if it exists, reading at the end of the loop
-		sink, err = GetContextVerified(ctx, v.Sink, &v.CBORCodec, v.COSEVerifier, i)
+		sink, err = GetContextVerified(ctx, v.Sink, v.COSEVerifier, i)
 		if !isNilOrNotFound(err) {
 			return err
 		}
@@ -252,13 +207,6 @@ func (v *VerifyingReplicator) ReplicateVerifiedUpdates(
 //
 // This method has no side effects in the case where the source and the sink are
 // verified to be identical, the original sink instance is retained.
-// replicateVerifiedContext synchronizes the state between a sink and a source
-// VerifiedContext.  If the sink is nil, it replaces the sink with the source's
-// state. Otherwise, it checks that both contexts refer to the same massif index
-// and that the source log has not been truncated.  If the sink and source have
-// the same length, it verifies their states are equal. If the source has new
-// data, it replaces the sink's state with the source's. Returns the updated
-// VerifiedContext or an error if consistency checks fail.
 func (v *VerifyingReplicator) replicateVerifiedContext(
 	ctx context.Context,
 	sink *VerifiedContext, source *VerifiedContext,
@@ -305,53 +253,16 @@ func (v *VerifyingReplicator) replicateVerifiedContext(
 }
 
 func verifiedStateEqual(a *VerifiedContext, b *VerifiedContext) bool {
-	var err error
-
-	// There is no difference in the log format between the two versions currently supported.
 	if len(a.Data) != len(b.Data) {
 		return false
 	}
-	fromRoots := a.ConsistentRoots
-	toRoots := b.ConsistentRoots
-	// If either state is a V0 state, compare the legacy seal roots
-	if a.MMRState.Version == int(MMRStateVersion0) || b.MMRState.Version == int(MMRStateVersion0) {
-		rootA := peakBaggedRoot(a.MMRState)
-		rootB := peakBaggedRoot(b.MMRState)
-		if !bytes.Equal(rootA, rootB) {
-			return false
-		}
-		if a.MMRState.Version == int(MMRStateVersion0) {
-			fromRoots, err = mmr.PeakHashes(a, a.MMRState.MMRSize-1)
-			if err != nil {
-				return false
-			}
-		}
-		if b.MMRState.Version == int(MMRStateVersion0) {
-			toRoots, err = mmr.PeakHashes(b, b.MMRState.MMRSize-1)
-			if err != nil {
-				return false
-			}
-		}
-
-	}
-
-	// If both states are V1 states, compare the peaks
-	if len(fromRoots) != len(toRoots) {
+	if len(a.ConsistentRoots) != len(b.ConsistentRoots) {
 		return false
 	}
-	for i := range len(fromRoots) {
-		if !bytes.Equal(fromRoots[i], toRoots[i]) {
+	for i := range len(a.ConsistentRoots) {
+		if !bytes.Equal(a.ConsistentRoots[i], b.ConsistentRoots[i]) {
 			return false
 		}
 	}
 	return true
-}
-
-// peakBaggedRoot is used to obtain an MMRState V0 bagged root from a V1 accumulator peak list.
-// If a v0 state is provided, the root is returned as is.
-func peakBaggedRoot(state MMRState) []byte {
-	if state.Version < int(MMRStateVersion1) {
-		return state.LegacySealRoot
-	}
-	return mmr.HashPeaksRHS(sha256.New(), state.Peaks)
 }

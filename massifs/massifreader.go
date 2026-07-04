@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	commoncbor "github.com/forestrie/go-merklelog/massifs/cbor"
 	"github.com/forestrie/go-merklelog/massifs/storage"
 	"github.com/veraison/go-cose"
 )
@@ -173,31 +172,20 @@ func GetMassifStart(ctx context.Context, reader ObjectReader, massifIndex uint32
 
 // GetCheckpoint retrieves and decodes a checkpoint for the specified massif index.
 //
-// It reads the checkpoint data using the provided ObjectReader, decodes it
-// using the given CBORCodec, and returns a Checkpoint containing the signed
-// message and unverified MMR state.  Returns an error if the data cannot be
-// retrieved or decoded.
+// It reads the checkpoint object using the provided ObjectReader and decodes
+// it as a format-v3 consistency receipt. Returns an error if the data cannot
+// be retrieved or decoded.
 func GetCheckpoint(
-	ctx context.Context, reader ObjectReader, codec commoncbor.CBORCodec, massifIndex uint32,
+	ctx context.Context, reader ObjectReader, massifIndex uint32,
 ) (Checkpoint, error) {
 	data, err := GetCheckpointData(ctx, reader, massifIndex)
 	if err != nil {
 		return Checkpoint{}, err
 	}
-
-	msg, unverifiedState, err := DecodeSignedRoot(codec, data)
-	if err != nil {
-		return Checkpoint{}, err
-	}
-
-	checkpt := Checkpoint{
-		Sign1Message: *msg,
-		MMRState:     unverifiedState,
-	}
-	return checkpt, nil
+	return NewCheckpoint(data)
 }
 
-// GetContextVerified retrieves and verifies a massif context using the provided reader, CBOR codec, and COSE verifier.
+// GetContextVerified retrieves and verifies a massif context using the provided reader and COSE verifier.
 //
 // It applies any additional verification options supplied via opts. If a
 // checkpoint is not provided in the options, it fetches the checkpoint for the
@@ -207,8 +195,7 @@ func GetCheckpoint(
 // Parameters:
 //   - ctx: The context for controlling cancellation and deadlines.
 //   - reader: An ObjectReader used to access massif data.
-//   - codec: The CBOR codec for decoding data.
-//   - verifier: The COSE verifier for cryptographic verification.
+//   - verifier: The COSE verifier for the checkpoint receipt signature (required).
 //   - massifIndex: The index of the massif to verify.
 //   - opts: Optional verification options.
 //
@@ -217,12 +204,10 @@ func GetCheckpoint(
 //   - error: An error if retrieval or verification fails.
 func GetContextVerified(
 	ctx context.Context, reader ObjectReader,
-	codec *commoncbor.CBORCodec,
 	verifier cose.Verifier,
 	massifIndex uint32, opts ...Option,
 ) (*VerifiedContext, error) {
 	verifyOpts := &VerifyOptions{
-		CBORCodec:    codec,
 		COSEVerifier: verifier,
 	}
 
@@ -239,7 +224,7 @@ func GetContextVerified(
 
 	// Get checkpoint if not provided in options
 	if verifyOpts.Check == nil {
-		check, err := GetCheckpoint(ctx, reader, *verifyOpts.CBORCodec, massifIndex)
+		check, err := GetCheckpoint(ctx, reader, massifIndex)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get checkpoint for verification: %w", err)
 		}

@@ -25,6 +25,11 @@ const (
 	// CheckpointVDSConsistency is the verifiable-data-structure algorithm
 	// identifier for the MMR consistency profile (protected header label 395).
 	CheckpointVDSConsistency int64 = 3
+	// checkpointLabelAlg is the COSE protected-header algorithm label.
+	checkpointLabelAlg int64 = 1
+	// checkpointLabelVDS is the protected-header verifiable-data-structure
+	// label (draft: vds).
+	checkpointLabelVDS int64 = 395
 	// checkpointLabelVDP is the unprotected-header label carrying the
 	// verifiable-proofs map (draft: vdp).
 	checkpointLabelVDP int64 = 396

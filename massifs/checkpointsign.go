@@ -1,12 +1,40 @@
 package massifs
 
 import (
+	"crypto/elliptic"
 	"crypto/rand"
 	"fmt"
+	"math/big"
 
 	"github.com/fxamacker/cbor/v2"
 	"github.com/veraison/go-cose"
 )
+
+var (
+	p256N     = elliptic.P256().Params().N
+	p256HalfN = new(big.Int).Rsh(elliptic.P256().Params().N, 1)
+)
+
+// normalizeSignatureLowS returns the low-s form of an ES256 signature
+// (r || s, 64 bytes): (r, N-s) verifies for exactly the same digest and key.
+// ECDSA backends (crypto/ecdsa, KMS) make no low-s guarantee, while the
+// univocity on-chain P256 verifier rejects malleable high-s signatures, so
+// checkpoint material is always emitted in low-s form. Non-ES256 signatures
+// are returned unchanged.
+func normalizeSignatureLowS(alg cose.Algorithm, sig []byte) []byte {
+	if alg != cose.AlgorithmES256 || len(sig) != 64 {
+		return sig
+	}
+	s := new(big.Int).SetBytes(sig[32:])
+	if s.Cmp(p256HalfN) <= 0 {
+		return sig
+	}
+	s.Sub(p256N, s)
+	out := make([]byte, 64)
+	copy(out, sig[:32])
+	s.FillBytes(out[32:])
+	return out
+}
 
 // CheckpointSignOption configures optional checkpoint receipt content.
 type CheckpointSignOption func(*checkpointSignOptions)
@@ -78,6 +106,7 @@ func SignCheckpointReceipt(
 	if err != nil {
 		return nil, fmt.Errorf("sign checkpoint receipt: %w", err)
 	}
+	signature = normalizeSignatureLowS(signer.Algorithm(), signature)
 
 	extras := map[int64]cbor.RawMessage{}
 	for label, value := range options.extras {
@@ -135,6 +164,7 @@ func SignPeakReceipts(signer cose.Signer, kid []byte, accumulator [][]byte) ([][
 		if err != nil {
 			return nil, fmt.Errorf("sign peak receipt %d: %w", i, err)
 		}
+		signature = normalizeSignatureLowS(signer.Algorithm(), signature)
 		sign1 := []any{protected, map[int64]cbor.RawMessage{}, nil, signature}
 		receipts[i], err = canonicalReceiptCBOR.Marshal(cbor.Tag{Number: 18, Content: sign1})
 		if err != nil {

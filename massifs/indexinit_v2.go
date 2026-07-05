@@ -21,9 +21,9 @@ func (mc *MassifContext) initIndexV2() error {
 	// massifHeight is one-based (h). Leaf capacity is N = 2^(h-1).
 	leafCount := urkle.LeafCountForMassifHeight(mc.Start.MassifHeight)
 
-	mBits := bloom.MBitsSafeCast(bloom.MBitsV1(leafCount, BloomBitsPerElementV1))
-	if mBits == 0 {
-		return bloom.ErrMBitsOverflow
+	mBits, err := bloomMBitsV1ForLeafCount(leafCount)
+	if err != nil {
+		return err
 	}
 	regionBytes := bloom.RegionBytesV1(mBits)
 

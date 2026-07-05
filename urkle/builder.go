@@ -1,6 +1,7 @@
 package urkle
 
 import (
+	"fmt"
 	"hash"
 	"math/bits"
 )
@@ -55,6 +56,35 @@ func NewBuilderFromFrontier(hasher hash.Hash, leafTable []byte, nodeStore []byte
 		b.st.Depth = 0
 		return b, nil
 	}
+
+	// Validate decoded frontier state against local capacities and basic
+	// structural invariants before resuming from it.
+	if st.NextLeaf > b.leafCap {
+		return nil, ErrFrontierBadState
+	}
+	if uint32(st.Next) > b.nodeCap {
+		return nil, ErrFrontierBadState
+	}
+	if st.Depth > FrontierMaxDepth {
+		return nil, ErrFrontierBadState
+	}
+	if st.Depth > 0 && (st.Next == 0 || st.Pending == NoRef) {
+		return nil, ErrFrontierBadState
+	}
+	for i := uint8(0); i < st.Depth; i++ {
+		if uint32(st.Frames[i].Left) >= uint32(st.Next) {
+			return nil, ErrFrontierBadState
+		}
+	}
+
+	// Pending is consumed directly by emitBranch/Finalize as a node ref; a
+	// non-empty trie must have a committed Pending in [0, Next). Validate it
+	// so a corrupted frontier yields ErrFrontierBadState instead of an
+	// out-of-bounds panic in the node store.
+	if st.NextLeaf > 0 && (st.Pending == NoRef || uint32(st.Pending) >= uint32(st.Next)) {
+		return nil, ErrFrontierBadState
+	}
+
 	b.st = st
 	return b, nil
 }
@@ -65,7 +95,7 @@ func (b *Builder) initCaps() error {
 	}
 	leafCap := uint64(len(b.leafTable) / LeafRecordBytes)
 	if leafCap > uint64(^uint32(0)) {
-		return ErrLeafCountDoesNotFit32
+		return fmt.Errorf("%w: leafCap=%d exceeds uint32-backed capacity", ErrLeafOrdinalDoesNotFit, leafCap)
 	}
 	b.leafCap = uint32(leafCap)
 

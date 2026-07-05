@@ -33,7 +33,6 @@ var (
 	ErrBadMBits    = errors.New("bloom: header mBits invalid")
 
 	ErrMBitsOverflow = errors.New("bloom: mBits overflows supported range")
-	ErrSizeOverflow  = errors.New("bloom: size computation overflow")
 )
 
 type HeaderV1 struct {

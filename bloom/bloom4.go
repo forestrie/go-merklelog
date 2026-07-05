@@ -18,7 +18,13 @@ func InitV1(region []byte, leafCount uint64, bitsPerElement uint64, k uint8) err
 	if err := CheckBPE(bitsPerElement); err != nil {
 		return err
 	}
-	mBits := MBitsSafeCast(MBitsV1(leafCount, bitsPerElement))
+	mBits64 := MBitsV1(leafCount, bitsPerElement)
+	// Detect uint64 overflow in bitsPerElement * leafCount. At this point
+	// leafCount > 0 by the check above.
+	if mBits64/leafCount != bitsPerElement {
+		return ErrMBitsOverflow
+	}
+	mBits := MBitsSafeCast(mBits64)
 	if mBits == 0 {
 		return ErrMBitsOverflow
 	}

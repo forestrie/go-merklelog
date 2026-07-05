@@ -17,15 +17,6 @@ type KeyFieldView struct {
 	Count       uint32 // number of filled records (typically nextLeaf)
 }
 
-// KeyData returns a contiguous slice of idtimestamps if the on-disk format stores keys
-// contiguously with no per-record stride.
-//
-// For the current fixed-size leaf-table format, keys are strided (every 128 bytes),
-// so this returns (nil, false).
-func KeyData(_ IndexView, _ uint32) ([]byte, bool) {
-	return nil, false
-}
-
 // KeyFields returns a descriptor for iterating over keys in the leaf table without copying.
 func KeyFields(v IndexView, nextLeaf uint32) KeyFieldView {
 	// Clamp nextLeaf to capacity defensively.

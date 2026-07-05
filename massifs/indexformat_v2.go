@@ -25,10 +25,11 @@ const (
 //
 //	bloom bitsets || urkle frontier || urkle leaf table || urkle node store
 func indexDataBytesV2(leafCount uint64) (uint64, error) {
-	// Bloom region bytes includes the 32B header; we exclude that here because the massif index header is fixed 32B.
-	mBits := bloom.MBitsSafeCast(bloom.MBitsV1(leafCount, BloomBitsPerElementV1))
-	if mBits == 0 {
-		return 0, bloom.ErrMBitsOverflow
+	// Bloom region bytes includes the 32B header; we exclude that here
+	// because the massif index header is fixed 32B.
+	mBits, err := bloomMBitsV1ForLeafCount(leafCount)
+	if err != nil {
+		return 0, err
 	}
 	bloomRegionBytes := bloom.RegionBytesV1(mBits)
 	if bloomRegionBytes < uint64(bloom.HeaderBytesV1) {
@@ -46,4 +47,20 @@ func indexDataBytesV2(leafCount uint64) (uint64, error) {
 		return 0, fmt.Errorf("index size overflow")
 	}
 	return total, nil
+}
+
+// bloomMBitsV1ForLeafCount computes the Bloom mBits for the given
+// leafCount using the v2 index sizing knobs, and enforces both uint64
+// and uint32 bounds.
+func bloomMBitsV1ForLeafCount(leafCount uint64) (uint32, error) {
+	mBits64 := bloom.MBitsV1(leafCount, BloomBitsPerElementV1)
+	// Detect uint64 overflow in BloomBitsPerElementV1 * leafCount.
+	if leafCount > 0 && mBits64/leafCount != BloomBitsPerElementV1 {
+		return 0, bloom.ErrMBitsOverflow
+	}
+	mBits := bloom.MBitsSafeCast(mBits64)
+	if mBits == 0 {
+		return 0, bloom.ErrMBitsOverflow
+	}
+	return mBits, nil
 }

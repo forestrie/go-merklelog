@@ -118,9 +118,9 @@ func (mc MassifContext) BloomRegion() ([]byte, error) {
 	}
 
 	leafCount := urkle.LeafCountForMassifHeight(mc.Start.MassifHeight)
-	mBits := bloom.MBitsSafeCast(bloom.MBitsV1(leafCount, BloomBitsPerElementV1))
-	if mBits == 0 {
-		return nil, bloom.ErrMBitsOverflow
+	mBits, err := bloomMBitsV1ForLeafCount(leafCount)
+	if err != nil {
+		return nil, err
 	}
 	regionBytes := bloom.RegionBytesV1(mBits)
 
@@ -139,9 +139,9 @@ func (mc MassifContext) UrkleFrontierRegion() ([]byte, error) {
 	}
 
 	leafCount := urkle.LeafCountForMassifHeight(mc.Start.MassifHeight)
-	mBits := bloom.MBitsSafeCast(bloom.MBitsV1(leafCount, BloomBitsPerElementV1))
-	if mBits == 0 {
-		return nil, bloom.ErrMBitsOverflow
+	mBits, err := bloomMBitsV1ForLeafCount(leafCount)
+	if err != nil {
+		return nil, err
 	}
 	bloomRegionBytes := bloom.RegionBytesV1(mBits)
 
@@ -165,10 +165,11 @@ func (mc MassifContext) UrkleLeafTableRegion() ([]byte, error) {
 
 	leafCount := mc.urkleLeafCountV2()
 
-	// NOTE: We recompute offsets directly to avoid depending on slice lengths from other regions.
-	mBits := bloom.MBitsSafeCast(bloom.MBitsV1(leafCount, BloomBitsPerElementV1))
-	if mBits == 0 {
-		return nil, bloom.ErrMBitsOverflow
+	// NOTE: We recompute offsets directly to avoid depending on slice
+	// lengths from other regions.
+	mBits, err := bloomMBitsV1ForLeafCount(leafCount)
+	if err != nil {
+		return nil, err
 	}
 	bloomRegionBytes := bloom.RegionBytesV1(mBits)
 	frontierStart := mc.IndexHeaderStart() + bloomRegionBytes
@@ -187,9 +188,9 @@ func (mc MassifContext) UrkleNodeStoreRegion() ([]byte, error) {
 	}
 
 	leafCount := mc.urkleLeafCountV2()
-	mBits := bloom.MBitsSafeCast(bloom.MBitsV1(leafCount, BloomBitsPerElementV1))
-	if mBits == 0 {
-		return nil, bloom.ErrMBitsOverflow
+	mBits, err := bloomMBitsV1ForLeafCount(leafCount)
+	if err != nil {
+		return nil, err
 	}
 	bloomRegionBytes := bloom.RegionBytesV1(mBits)
 	frontierStart := mc.IndexHeaderStart() + bloomRegionBytes

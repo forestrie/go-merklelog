@@ -12,14 +12,21 @@ func CheckBPE(bitsPerElement uint64) error {
 	return nil
 }
 
-// MBitsV1 returns mBits64 = bitsPerElement * leafCount.
+// MBitsV1 returns mBits64 = bitsPerElement * leafCount with no overflow
+// checks.
 //
-// The caller is responsible for ensuring:
+// Callers are fully responsible for validating inputs and the result,
+// including (when relevant to the call site):
 //   - leafCount > 0
-//   - bitsPerElement > 0
-//   - bitsPerElement <= uint64(^uint32(0))
+//   - bitsPerElement > 0 and within any desired range (for example,
+//     via CheckBPE)
+//   - detecting uint64 overflow in the product when it matters; for
+//     leafCount > 0, callers can confirm that
+//     mBits64/leafCount == bitsPerElement before downcasting or using
+//     mBits64 for sizing.
 //
-// CheckBPE can be used to check these conditions.
+// Note: MBitsSafeCast only checks that mBits64 fits in uint32; it does
+// not detect uint64 wraparound of bitsPerElement * leafCount.
 func MBitsV1(leafCount uint64, bitsPerElement uint64) uint64 {
 	return bitsPerElement * leafCount
 }

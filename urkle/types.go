@@ -40,22 +40,30 @@ const (
 )
 
 var (
-	ErrBadHashSize           = errors.New("urkle: hasher output must be 32 bytes")
-	ErrBadValueSize          = errors.New("urkle: valueBytes must be 32 bytes")
-	ErrLeafTableBadSize      = errors.New("urkle: leaf table buffer size invalid")
-	ErrNodeStoreBadSize      = errors.New("urkle: node store buffer size invalid")
-	ErrFrontierBadSize       = errors.New("urkle: frontier buffer size invalid")
-	ErrFrontierBadMagic      = errors.New("urkle: frontier magic invalid")
-	ErrFrontierBadVersion    = errors.New("urkle: frontier version invalid")
-	ErrOutOfOrderKey         = errors.New("urkle: key out of order")
-	ErrDuplicateKey          = errors.New("urkle: duplicate key")
-	ErrInvalidNodeKind       = errors.New("urkle: invalid node kind")
-	ErrInvalidBranchBit      = errors.New("urkle: invalid branch bit")
-	ErrInvalidSubtreeSize    = errors.New("urkle: invalid subtree size")
-	ErrInvalidRightSpan      = errors.New("urkle: invalid right span")
-	ErrInvalidLeafOrdinal    = errors.New("urkle: invalid leaf ordinal")
-	ErrLeafCountDoesNotFit32 = errors.New("urkle: leafCount does not fit in uint32")
-	ErrLeafOrdinalDoesNotFit = errors.New("urkle: leafOrdinal does not fit the configured width")
+	ErrBadHashSize        = errors.New("urkle: hasher output must be 32 bytes")
+	ErrBadValueSize       = errors.New("urkle: valueBytes must be 32 bytes")
+	ErrLeafTableBadSize   = errors.New("urkle: leaf table buffer size invalid")
+	ErrNodeStoreBadSize   = errors.New("urkle: node store buffer size invalid")
+	ErrFrontierBadSize    = errors.New("urkle: frontier buffer size invalid")
+	ErrFrontierBadMagic   = errors.New("urkle: frontier magic invalid")
+	ErrFrontierBadVersion = errors.New("urkle: frontier version invalid")
+	ErrFrontierBadState   = errors.New("urkle: frontier state invalid")
+	ErrOutOfOrderKey      = errors.New("urkle: key out of order")
+	ErrDuplicateKey       = errors.New("urkle: duplicate key")
+	ErrInvalidNodeKind    = errors.New("urkle: invalid node kind")
+	ErrInvalidBranchBit   = errors.New("urkle: invalid branch bit")
+	ErrInvalidSubtreeSize = errors.New("urkle: invalid subtree size")
+	ErrInvalidRightSpan   = errors.New("urkle: invalid right span")
+	ErrInvalidLeafOrdinal = errors.New("urkle: invalid leaf ordinal")
+
+	// ErrLeafOrdinalDoesNotFit is the base error for any situation where a
+	// leaf ordinal or related capacity cannot be represented in the
+	// configured width (for example, leafCount exceeding a uint32-backed
+	// structure, or an ordinal that does not fit in uint16).
+	//
+	// Callers should use errors.Is(err, ErrLeafOrdinalDoesNotFit) and may
+	// inspect any wrapped context for details.
+	ErrLeafOrdinalDoesNotFit = errors.New("urkle: leaf ordinal / capacity does not fit configuration")
 
 	ErrEmptyTrie             = errors.New("urkle: empty trie")
 	ErrKeyNotFound           = errors.New("urkle: key not found")

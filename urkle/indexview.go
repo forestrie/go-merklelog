@@ -5,7 +5,8 @@ import "fmt"
 // IndexView is a zero-allocation view over an on-disk urkle index payload.
 //
 // In this rollout, indexData is assumed to be exactly:
-//   leafTable || nodeStore
+//
+//	leafTable || nodeStore
 //
 // where:
 //   - leafTableBytes = leafCount * LeafRecordBytes
@@ -50,8 +51,9 @@ func NewIndexView(indexData []byte, leafCount uint64) (IndexView, error) {
 // NewIndexViewFromMassifHeight slices indexData into (leafTable,nodeStore) using the fixed
 // leaf capacity derived from massifHeight (one-based).
 func NewIndexViewFromMassifHeight(indexData []byte, massifHeight uint8) (IndexView, error) {
+	if err := CheckMassifHeight(massifHeight); err != nil {
+		return IndexView{}, err
+	}
 	leafCount := LeafCountForMassifHeight(massifHeight)
 	return NewIndexView(indexData, leafCount)
 }
-
-

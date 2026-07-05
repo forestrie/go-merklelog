@@ -1,6 +1,9 @@
 package urkle
 
-import "math/bits"
+import (
+	"fmt"
+	"math/bits"
+)
 
 // NodeCountMax returns the maximum number of nodes in a binary trie with leafCount distinct keys.
 // For a Patricia/crit-bit style binary trie, node count is <= 2N-1.
@@ -22,10 +25,11 @@ func NodeStoreBytes(leafCount uint64) uint64 {
 	return NodeCountMax(leafCount) * NodeRecordBytes
 }
 
-// CheckLeafCount checks whether leafCount can be represented in the on-disk structures.
+// CheckLeafCount checks whether leafCount can be represented in the on-disk
+// structures (which use uint32-backed counters).
 func CheckLeafCount(leafCount uint64) error {
 	if leafCount > uint64(^uint32(0)) {
-		return ErrLeafCountDoesNotFit32
+		return fmt.Errorf("%w: leafCount=%d exceeds uint32-backed capacity", ErrLeafOrdinalDoesNotFit, leafCount)
 	}
 	return nil
 }

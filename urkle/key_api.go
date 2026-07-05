@@ -1,14 +1,6 @@
 package urkle
 
-import (
-	"errors"
-	"fmt"
-)
-
-var (
-	// ErrLeafOrdinalDoesNotFit16 indicates a found leafOrdinal cannot be represented as uint16.
-	ErrLeafOrdinalDoesNotFit16 = errors.New("urkle: leaf ordinal does not fit in uint16")
-)
+import "fmt"
 
 // ProveInclusionFromView generates an inclusion proof for key under the trie rooted at root.
 func ProveInclusionFromView(v IndexView, root Ref, key uint64) (InclusionProof, error) {
@@ -29,7 +21,7 @@ func KeyLeafOrdinal(v IndexView, root Ref, idtimestamp uint64) (uint16, error) {
 		return 0, err
 	}
 	if ord32 > uint32(^uint16(0)) {
-		return 0, ErrLeafOrdinalDoesNotFit16
+		return 0, fmt.Errorf("%w: leafOrdinal=%d does not fit in uint16", ErrLeafOrdinalDoesNotFit, ord32)
 	}
 	return uint16(ord32), nil
 }

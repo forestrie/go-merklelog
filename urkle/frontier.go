@@ -100,8 +100,10 @@ func DecodeFrontierV1(src []byte) (st FrontierStateV1, ok bool, err error) {
 	st.Depth = src[24]
 	st.NextLeaf = readU32BE(src[28:32])
 
+	// An out-of-range Depth is a bad state value (not a buffer-length problem),
+	// matching how NewBuilderFromFrontier reports the same condition.
 	if st.Depth > FrontierMaxDepth {
-		return FrontierStateV1{}, false, ErrFrontierBadSize
+		return FrontierStateV1{}, false, ErrFrontierBadState
 	}
 	if st.Depth > 0 && st.Pending == NoRef {
 		return FrontierStateV1{}, false, ErrFrontierBadState

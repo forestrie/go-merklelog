@@ -75,6 +75,13 @@ func TestCheckMassifHeight_LeafOrdinalCapacity(t *testing.T) {
 	err := CheckMassifHeight(33)
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrLeafOrdinalDoesNotFit)
+
+	// Heights whose 1<<(h-1) shift wraps to 0 (massifHeight > 64) must still
+	// fail closed rather than spuriously passing via CheckLeafCount(0).
+	for _, h := range []uint8{64, 65, 200, 255} {
+		require.ErrorIsf(t, CheckMassifHeight(h), ErrLeafOrdinalDoesNotFit,
+			"massifHeight=%d must be rejected", h)
+	}
 }
 
 func TestLeafCountForMassifHeight_DoesNotOverflow(t *testing.T) {

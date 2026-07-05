@@ -91,7 +91,7 @@ func TestDecodeFrontierV1_InvalidDepthOrPending(t *testing.T) {
 	require.NoError(t, EncodeFrontierV1(dst, st2))
 	dst[24] = FrontierMaxDepth + 1
 	_, ok, err = DecodeFrontierV1(dst)
-	require.ErrorIs(t, err, ErrFrontierBadSize)
+	require.ErrorIs(t, err, ErrFrontierBadState)
 	require.False(t, ok)
 }
 
@@ -114,6 +114,58 @@ func TestNewBuilderFromFrontier_InvalidStateIsRejected(t *testing.T) {
 	require.Nil(t, b)
 	require.Error(t, err)
 	require.True(t, errors.Is(err, ErrFrontierBadState))
+}
+
+func TestNewBuilderFromFrontier_InvalidPendingIsRejected(t *testing.T) {
+	// leafCap=4 -> nodeCap=NodeCountMax(4)=7. A Pending of nodeCap is outside
+	// the node store slice; without validation it would panic in emitBranch /
+	// Finalize when the ref is dereferenced, rather than being rejected here.
+	leafTable := make([]byte, LeafTableBytes(4))
+	nodeStore := make([]byte, NodeStoreBytes(4))
+	nodeCap := uint32(len(nodeStore) / NodeRecordBytes)
+
+	cases := []struct {
+		name string
+		st   FrontierStateV1
+	}{
+		{
+			// Depth=0: Finalize would take root := Pending and read
+			// NodeHash(nodeStore, Pending) out of bounds.
+			name: "pending out of bounds, depth 0",
+			st: FrontierStateV1{
+				LastKey:  1,
+				Pending:  Ref(nodeCap),
+				Next:     1,
+				NextLeaf: 1,
+				Depth:    0,
+			},
+		},
+		{
+			// Pending == NoRef with a non-empty trie is likewise invalid; the
+			// InsertMonotone-then-close path would smuggle it into a frame Left.
+			name: "pending noref, non-empty trie",
+			st: FrontierStateV1{
+				LastKey:  1,
+				Pending:  NoRef,
+				Next:     1,
+				NextLeaf: 1,
+				Depth:    0,
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			frontier := make([]byte, FrontierStateV1Bytes)
+			require.NoError(t, EncodeFrontierV1(frontier, tc.st))
+
+			// Must return a clean error, never panic.
+			b, err := NewBuilderFromFrontier(newNopHasher(), leafTable, nodeStore, frontier)
+			require.Nil(t, b)
+			require.ErrorIs(t, err, ErrFrontierBadState)
+		})
+	}
 }
 
 // nopHasher is a minimal hash.Hash implementation used only for tests.

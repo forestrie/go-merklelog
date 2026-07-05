@@ -84,3 +84,14 @@ func TestIndexViewAndAPIs(t *testing.T) {
 	require.Equal(t, uint64(0), fv.KeyOffset)
 	require.Equal(t, uint64(8), fv.KeyBytes)
 }
+
+func TestNewIndexViewFromMassifHeight_RejectsOversizeHeight(t *testing.T) {
+	// A massifHeight whose leaf capacity cannot be represented (including the
+	// shift-wrap range > 64) must be rejected rather than yielding a degenerate
+	// zero-capacity view.
+	for _, h := range []uint8{33, 65, 255} {
+		_, err := NewIndexViewFromMassifHeight(nil, h)
+		require.ErrorIsf(t, err, ErrLeafOrdinalDoesNotFit,
+			"massifHeight=%d must be rejected", h)
+	}
+}

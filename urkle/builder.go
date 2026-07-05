@@ -77,6 +77,14 @@ func NewBuilderFromFrontier(hasher hash.Hash, leafTable []byte, nodeStore []byte
 		}
 	}
 
+	// Pending is consumed directly by emitBranch/Finalize as a node ref; a
+	// non-empty trie must have a committed Pending in [0, Next). Validate it
+	// so a corrupted frontier yields ErrFrontierBadState instead of an
+	// out-of-bounds panic in the node store.
+	if st.NextLeaf > 0 && (st.Pending == NoRef || uint32(st.Pending) >= uint32(st.Next)) {
+		return nil, ErrFrontierBadState
+	}
+
 	b.st = st
 	return b, nil
 }

@@ -2,6 +2,15 @@ package urkle
 
 import "fmt"
 
+// MaxMassifHeight is the largest one-based massifHeight for which
+// LeafCountForMassifHeight's `1 << (massifHeight-1)` shift is well defined.
+// For massifHeight > MaxMassifHeight the shift count reaches the uint64 width
+// and wraps to 0, which would otherwise let an absurd height spuriously pass
+// CheckLeafCount. It matches massifs.MaxMMRHeight. The binding capacity limit
+// for the v2 index (uint32-backed counters) is still enforced by CheckLeafCount,
+// which rejects heights above 32.
+const MaxMassifHeight = 64
+
 // LeafCountForMassifHeight returns the fixed leaf capacity N for a massif
 // height (one-based).
 //
@@ -29,6 +38,14 @@ func LeafCountForMassifHeight(massifHeight uint8) uint64 {
 // LeafCountForMassifHeight(massifHeight), so the effective bound is
 // LeafCountForMassifHeight(massifHeight) <= 2^32-1 when LeafOrdinalBytes == 4.
 func CheckMassifHeight(massifHeight uint8) error {
+	// Heights in [33..64] yield leafCount > 2^32-1 and are caught by
+	// CheckLeafCount below. Heights > 64 make LeafCountForMassifHeight shift by
+	// >= 64 and wrap to 0, which would spuriously pass; reject them explicitly
+	// so the check fails closed.
+	if massifHeight > MaxMassifHeight {
+		return fmt.Errorf("%w: massifHeight=%d exceeds MaxMassifHeight=%d",
+			ErrLeafOrdinalDoesNotFit, massifHeight, MaxMassifHeight)
+	}
 	n := LeafCountForMassifHeight(massifHeight)
 	return CheckLeafCount(n)
 }

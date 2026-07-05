@@ -73,4 +73,3 @@ so callers see a consistent limit regardless of whether they start from
 leafCount or massifHeight.
 
 */
-

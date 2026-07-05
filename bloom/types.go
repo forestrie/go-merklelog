@@ -12,7 +12,7 @@ const (
 	// HeaderBytesV1 is the fixed header size for BloomHeaderV1.
 	HeaderBytesV1 = 32
 
-	MagicV1   = "BLM1"
+	MagicV1         = "BLM1"
 	VersionV1 uint8 = 1
 
 	// BitOrderLSB0 means bit 0 is the least-significant bit of byte 0.
@@ -41,5 +41,3 @@ type HeaderV1 struct {
 	MBits     uint32
 	NInserted uint32
 }
-
-

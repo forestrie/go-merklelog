@@ -24,5 +24,3 @@ func readU64BE(b []byte) uint64 { return binary.BigEndian.Uint64(b) }
 
 func writeU32BE(dst []byte, v uint32) { binary.BigEndian.PutUint32(dst, v) }
 func writeU64BE(dst []byte, v uint64) { binary.BigEndian.PutUint64(dst, v) }
-
-

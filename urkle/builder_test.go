@@ -93,5 +93,3 @@ func TestBuilderFrontierRoundTripResumeMatchesNoBoundaryBuild(t *testing.T) {
 		require.Equal(t, root1, root2)
 	}
 }
-
-

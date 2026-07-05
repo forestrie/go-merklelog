@@ -68,4 +68,3 @@ func EncodeHeaderV1(region []byte, h HeaderV1) error {
 	clear(region[16:HeaderBytesV1])
 	return nil
 }
-

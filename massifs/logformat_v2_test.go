@@ -20,5 +20,3 @@ func TestMassifLogEntries_V2(t *testing.T) {
 		assert.Equal(t, nodes, got)
 	}
 }
-
-

@@ -15,10 +15,10 @@ type ProofStep struct {
 // InclusionProof proves that Key is present and yields (LeafOrdinal, Value).
 // Steps are ordered from leaf -> root.
 type InclusionProof struct {
-	Key        uint64
+	Key         uint64
 	LeafOrdinal uint32
-	Value      [HashBytes]byte
-	Steps      []ProofStep
+	Value       [HashBytes]byte
+	Steps       []ProofStep
 }
 
 // ExclusionProof proves that TargetKey is absent by returning the membership proof
@@ -26,11 +26,11 @@ type InclusionProof struct {
 //
 // Steps are ordered from leaf -> root.
 type ExclusionProof struct {
-	TargetKey     uint64
+	TargetKey      uint64
 	EncounteredKey uint64
-	LeafOrdinal   uint32
-	Value         [HashBytes]byte
-	Steps         []ProofStep
+	LeafOrdinal    uint32
+	Value          [HashBytes]byte
+	Steps          []ProofStep
 }
 
 // ProveInclusion generates an inclusion proof for key under the trie rooted at root.
@@ -225,5 +225,3 @@ func reverseSteps(in []ProofStep) []ProofStep {
 	}
 	return out
 }
-
-

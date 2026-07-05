@@ -3,7 +3,8 @@ package urkle
 import "hash"
 
 // HashLeaf computes:
-//   H( 0x00 || key_be8 || leafOrdinal_be4 || valueBytes[32] )
+//
+//	H( 0x00 || key_be8 || leafOrdinal_be4 || valueBytes[32] )
 func HashLeaf(hasher hash.Hash, key uint64, leafOrdinal uint32, valueBytes []byte) ([HashBytes]byte, error) {
 	if len(valueBytes) != HashBytes {
 		return [HashBytes]byte{}, ErrBadValueSize
@@ -24,7 +25,8 @@ func HashLeaf(hasher hash.Hash, key uint64, leafOrdinal uint32, valueBytes []byt
 }
 
 // HashBranch computes:
-//   H( 0x01 || bit_u8 || leftHash[32] || rightHash[32] )
+//
+//	H( 0x01 || bit_u8 || leftHash[32] || rightHash[32] )
 func HashBranch(hasher hash.Hash, bit uint8, left, right [HashBytes]byte) ([HashBytes]byte, error) {
 	hasher.Reset()
 	_, _ = hasher.Write([]byte{0x01, bit})
@@ -39,5 +41,3 @@ func HashBranch(hasher hash.Hash, bit uint8, left, right [HashBytes]byte) ([Hash
 	copy(out[:], sum)
 	return out, nil
 }
-
-

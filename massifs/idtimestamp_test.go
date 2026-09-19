@@ -60,6 +60,12 @@ func TestSplitIDTimestampBytes(t *testing.T) {
 		{args: args{b: []byte{1, 1, 128, 0, 0, 0, 0, 0, 0, 0}}, want: 0, want1: 0, wantErr: true},
 		// this case is just a straight up, data to short. It is only 7 bytes
 		{args: args{b: []byte{0, 1, 0, 0, 0, 0, 0}}, want: 0, want1: 0, wantErr: true},
+		// exactly 8 bytes: one short of the epoch-prefixed serialization. Must
+		// be rejected, not read as a 7-byte id (which panicked before the
+		// guard was written against the 9-byte serialization).
+		{name: "eight bytes is too short", args: args{b: []byte{1, 0, 0, 0, 0, 0, 0, 1}}, want: 0, want1: 0, wantErr: true},
+		// an empty slice is too short as well
+		{name: "empty", args: args{b: []byte{}}, want: 0, want1: 0, wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

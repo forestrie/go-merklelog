@@ -113,12 +113,16 @@ func IDTimestampBytes(id uint64, epoch uint8) []byte {
 //
 // Note: See IDTimestampBytes for description of the epoch
 func SplitIDTimestampBytes(b []byte) (uint64, uint8, error) {
-	if len(b) < 8 {
+	// The serialization is one epoch byte followed by the 8-byte big endian
+	// id, so anything shorter than 9 bytes cannot carry an id. The guard must
+	// be checked before b[1:] is read: an 8-byte input passes a `< 8` check
+	// and then panics on the 7-byte Uint64 read.
+	if len(b) < 9 {
 		return 0, 0, ErrIDTimestampBytesToShort
 	}
-	id := binary.BigEndian.Uint64(b[1:])
 	if len(b) > 9 {
 		return 0, 0, ErrEpochToLarge
 	}
+	id := binary.BigEndian.Uint64(b[1:])
 	return id, b[0], nil
 }

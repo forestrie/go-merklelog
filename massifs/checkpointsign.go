@@ -72,10 +72,19 @@ func WithUnprotectedExtras(extras map[int64]cbor.RawMessage) CheckpointSignOptio
 // the consistency proof in the unprotected header.
 //
 // The signer is the log's COSE signer (the sealer's delegated ES256/KMS key,
-// or a root key). The protected header is {1: alg, 395: vds=3}; the contract
-// reads the algorithm from label 1 and derives the same detached payload from
-// the proof, so the signature verifies on-chain. The delegation proof and CWT
-// claims are added by the sealer/consumer layers as needed.
+// or a root key). The protected header is
+// {1: alg, 395: vds=3, -65932: tree-size-1, -65933: tree-size-2}: the
+// contract reads the algorithm from label 1 and derives the same detached
+// payload from the proof, so the signature verifies on-chain, and both
+// tree sizes are signed alongside it (ADR-0066 D1). This function signs a
+// single consistency proof, so the signed tree-size-1 and tree-size-2 are
+// exactly that proof's TreeSize1 and TreeSize2 (ADR-0066 D2 chain semantics:
+// a receipt carrying several proofs would sign the first proof's
+// tree-size-1 and the last proof's tree-size-2, which is not this
+// function's case). The contract and every off-chain verifier compare the
+// signed sizes against the declared proof sizes (ADR-0066 D5.5). The
+// delegation proof and CWT claims are added by the sealer/consumer layers as
+// needed.
 //
 // With WithPeakReceipts, one additional detached-payload COSE_Sign1 is signed
 // per accumulator peak and carried in the unprotected header, enabling any
@@ -90,9 +99,11 @@ func SignCheckpointReceipt(
 		opt(&options)
 	}
 
-	protected, err := canonicalReceiptCBOR.Marshal(map[int64]int64{
-		checkpointLabelAlg: int64(signer.Algorithm()),
-		checkpointLabelVDS: CheckpointVDSConsistency,
+	protected, err := canonicalReceiptCBOR.Marshal(map[int64]any{
+		checkpointLabelAlg:       int64(signer.Algorithm()),
+		checkpointLabelVDS:       CheckpointVDSConsistency,
+		CheckpointLabelTreeSize1: proof.TreeSize1,
+		CheckpointLabelTreeSize2: proof.TreeSize2,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("encode protected header: %w", err)
@@ -174,21 +185,66 @@ func SignPeakReceipts(signer cose.Signer, kid []byte, accumulator [][]byte) ([][
 	return receipts, nil
 }
 
-// ProtectedHeaderAlgorithm reads the COSE algorithm from a checkpoint receipt's
-// protected header (label 1), as the contract does. Useful for consumers
-// selecting a verification path.
-func ProtectedHeaderAlgorithm(protectedHeader []byte) (int64, error) {
+// protectedHeaderInt decodes a checkpoint receipt's protected header and
+// reads a single label as a signed integer (used for the algorithm label,
+// which the COSE algorithm registry defines as negative for the algorithms
+// this package signs with).
+func protectedHeaderInt(protectedHeader []byte, label int64) (int64, error) {
 	var m map[int64]cbor.RawMessage
 	if err := cbor.Unmarshal(protectedHeader, &m); err != nil {
 		return 0, fmt.Errorf("decode protected header: %w", err)
 	}
-	raw, ok := m[checkpointLabelAlg]
+	raw, ok := m[label]
 	if !ok {
-		return 0, fmt.Errorf("protected header has no algorithm (label %d)", checkpointLabelAlg)
+		return 0, fmt.Errorf("protected header has no value for label %d", label)
 	}
-	var alg int64
-	if err := cbor.Unmarshal(raw, &alg); err != nil {
-		return 0, fmt.Errorf("decode algorithm: %w", err)
+	var v int64
+	if err := cbor.Unmarshal(raw, &v); err != nil {
+		return 0, fmt.Errorf("decode protected header label %d: %w", label, err)
 	}
-	return alg, nil
+	return v, nil
+}
+
+// protectedHeaderUint decodes a checkpoint receipt's protected header and
+// reads a single label as an unsigned integer (used for the signed tree
+// sizes, ADR-0066 D1, which are always non-negative).
+func protectedHeaderUint(protectedHeader []byte, label int64) (uint64, error) {
+	var m map[int64]cbor.RawMessage
+	if err := cbor.Unmarshal(protectedHeader, &m); err != nil {
+		return 0, fmt.Errorf("decode protected header: %w", err)
+	}
+	raw, ok := m[label]
+	if !ok {
+		return 0, fmt.Errorf("protected header has no value for label %d", label)
+	}
+	var v uint64
+	if err := cbor.Unmarshal(raw, &v); err != nil {
+		return 0, fmt.Errorf("decode protected header label %d as uint: %w", label, err)
+	}
+	return v, nil
+}
+
+// ProtectedHeaderAlgorithm reads the COSE algorithm from a checkpoint receipt's
+// protected header (label 1), as the contract does. Useful for consumers
+// selecting a verification path.
+func ProtectedHeaderAlgorithm(protectedHeader []byte) (int64, error) {
+	return protectedHeaderInt(protectedHeader, checkpointLabelAlg)
+}
+
+// ProtectedHeaderTreeSizes reads the signed tree-size-1 and tree-size-2 from
+// a checkpoint receipt's protected header (labels CheckpointLabelTreeSize1
+// and CheckpointLabelTreeSize2, ADR-0066 D1, D3). It errors if either label
+// is absent or is not an unsigned integer, which is the case for any
+// protected header signed before ADR-0066 (the {1, 395} form carries neither
+// label).
+func ProtectedHeaderTreeSizes(protectedHeader []byte) (treeSize1, treeSize2 uint64, err error) {
+	treeSize1, err = protectedHeaderUint(protectedHeader, CheckpointLabelTreeSize1)
+	if err != nil {
+		return 0, 0, fmt.Errorf("tree-size-1: %w", err)
+	}
+	treeSize2, err = protectedHeaderUint(protectedHeader, CheckpointLabelTreeSize2)
+	if err != nil {
+		return 0, 0, fmt.Errorf("tree-size-2: %w", err)
+	}
+	return treeSize1, treeSize2, nil
 }

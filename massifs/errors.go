@@ -23,6 +23,7 @@ var (
 	ErrCBORCodecNotProvided       = errors.New("a CBOR codec was required but not provided")
 	ErrSealNotFound               = errors.New("seal not found")
 	ErrSealVerifyFailed           = errors.New("the seal signature verification failed")
+	ErrSignedSizeMismatch         = errors.New("the signed tree sizes do not match the declared consistency proof sizes")
 	ErrGeneratingConsistencyProof = errors.New("error while  creating a consistency proof")
 	ErrConsistencyProofCheck      = errors.New("verification error while checking a consistency proof")
 	ErrInconsistentState          = errors.New("verification failed for a consistency proof")

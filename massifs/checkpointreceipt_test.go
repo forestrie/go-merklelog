@@ -79,7 +79,14 @@ func TestCheckpointReceiptRoundTrip(t *testing.T) {
 		Paths:      [][][]byte{},
 		RightPeaks: [][]byte{leaf1},
 	}
-	protected, err := hex.DecodeString("a1013a00010106")
+	// A protected header carrying the proof's own sizes (ADR-0066 D1), as
+	// SignCheckpointReceipt would produce for this proof.
+	protected, err := canonicalReceiptCBOR.Marshal(map[int64]any{
+		checkpointLabelAlg:       int64(-65799),
+		checkpointLabelVDS:       CheckpointVDSConsistency,
+		CheckpointLabelTreeSize1: proof.TreeSize1,
+		CheckpointLabelTreeSize2: proof.TreeSize2,
+	})
 	require.NoError(t, err)
 	signature := make([]byte, 65)
 	signature[0] = 0xAB
@@ -94,6 +101,12 @@ func TestCheckpointReceiptRoundTrip(t *testing.T) {
 	require.Equal(t, protected, got.ProtectedHeader)
 	require.Equal(t, signature, got.Signature)
 	require.Equal(t, proof, got.Proof)
+
+	// The protected header's signed sizes equal the carried proof's sizes.
+	s1, s2, err := ProtectedHeaderTreeSizes(got.ProtectedHeader)
+	require.NoError(t, err)
+	require.Equal(t, proof.TreeSize1, s1)
+	require.Equal(t, proof.TreeSize2, s2)
 }
 
 // The detached payload a verifier reconstructs from a first-checkpoint proof

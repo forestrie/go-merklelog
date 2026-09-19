@@ -3,7 +3,9 @@ package mmr
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"hash"
+	"math/bits"
 )
 
 var (
@@ -58,48 +60,72 @@ func VerifyConsistency(
 	hasher hash.Hash,
 	cp ConsistencyProof, peaksFrom [][]byte, peaksTo [][]byte) (bool, [][]byte, error) {
 
+	// Equal sizes describe one state: nothing is proven and nothing is new.
+	// The proof shape the sizes imply is one empty path per peak, and the
+	// target accumulator must equal the origin accumulator. Callers such as
+	// GetContextVerified reach this when a massif has not grown past its seal.
+	if cp.MMRSizeA == cp.MMRSizeB {
+		return verifySameState(cp, peaksFrom, peaksTo)
+	}
+
 	// Get the peaks proven by the consistency proof using the provided peaks
-	// for mmr size A
-	proven, err := ConsistentRoots(hasher, cp.MMRSizeA-1, peaksFrom, cp.Path)
+	// for mmr size A. ConsistentRootsForSizes additionally requires the proof
+	// to have exactly the shape the two sizes imply, and requires size B to be
+	// a complete mmr size.
+	proven, expectedRight, err := ConsistentRootsForSizes(
+		hasher, cp.MMRSizeA, cp.MMRSizeB, peaksFrom, cp.Path)
 	if err != nil {
 		return false, nil, err
 	}
 
-	// If all proven nodes match an accumulator peak for MMR(sizeB) then MMR(sizeA)
-	// is consistent with MMR(sizeB). Because both the peaks and the accumulator
-	// peaks are listed in descending order of height this can be accomplished
-	// with a linear scan.
+	// The accumulator for MMR(sizeB) consists of the proven peaks followed by
+	// the right peaks, which no proof reaches. Requiring the count to match
+	// means peaksTo has no surplus or missing entries.
+	if len(peaksTo) != len(proven)+expectedRight {
+		return false, nil, fmt.Errorf(
+			"%w: %d target peaks expected, got %d",
+			ErrConsistencyCheck, len(proven)+expectedRight, len(peaksTo))
+	}
 
-	ito := 0
-	for _, root := range proven {
-
-		if bytes.Equal(peaksTo[ito], root) {
-			continue
-		}
-
-		// If the root does not match the current peak then it must match the
-		// next one down.
-
-		ito += 1
-
-		if ito >= len(peaksTo) {
-			return false, nil, ErrConsistencyCheck
-		}
-
-		if !bytes.Equal(peaksTo[ito], root) {
-			return false, nil, ErrConsistencyCheck
+	// The proven peaks are the peaks of MMR(sizeB) in descending height order,
+	// so they must be a prefix of peaksTo.
+	for i, root := range proven {
+		if !bytes.Equal(peaksTo[i], root) {
+			return false, nil, fmt.Errorf(
+				"%w: target peak %d does not match the proven root",
+				ErrConsistencyCheck, i)
 		}
 	}
 
-	// the accumulator consists of the proven peaks plus any new peaks in peaksTo.
-	// In the draft these new peaks are the 'right-peaks' of the consistency proof.
-	// Here, as ConsistentRoots requires that the peak count for the provided ifrom
-	// matches the number of peaks in peaksFrom, simply returning peaksTo is safe.
-	// Even in the corner case where proven is empty.
-	//
-	// We could do
-	//  proven = append(proven, peaksTo[len(proven):]...)
-	//
-	// But that would be completely redundant given the loop above.
+	return true, peaksTo, nil
+}
+
+// verifySameState is the MMRSizeA == MMRSizeB case of VerifyConsistency: the
+// accumulator of the one state must be supplied for both sides, with one empty
+// path per peak.
+func verifySameState(cp ConsistencyProof, peaksFrom, peaksTo [][]byte) (bool, [][]byte, error) {
+	n := bits.OnesCount64(PeaksBitmap(cp.MMRSizeA))
+	if len(peaksFrom) != n || len(cp.Path) != n {
+		return false, nil, fmt.Errorf(
+			"%w: %d peaks for size %d, got %d accumulator entries and %d paths",
+			ErrConsistencyPeakCount, n, cp.MMRSizeA, len(peaksFrom), len(cp.Path))
+	}
+	for i, path := range cp.Path {
+		if len(path) != 0 {
+			return false, nil, fmt.Errorf(
+				"%w: path %d: expected length 0, got %d",
+				ErrConsistencyPathLength, i, len(path))
+		}
+	}
+	if len(peaksTo) != n {
+		return false, nil, fmt.Errorf(
+			"%w: %d target peaks expected, got %d", ErrConsistencyCheck, n, len(peaksTo))
+	}
+	for i := range peaksFrom {
+		if !bytes.Equal(peaksTo[i], peaksFrom[i]) {
+			return false, nil, fmt.Errorf(
+				"%w: target peak %d does not match the origin peak", ErrConsistencyCheck, i)
+		}
+	}
 	return true, peaksTo, nil
 }

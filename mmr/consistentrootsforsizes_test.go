@@ -369,12 +369,15 @@ func TestMMRSizeForLeafCountIdentity(t *testing.T) {
 // TestConsistentRootsForSizesErrorsAreDistinct checks each condition reports
 // its own sentinel, so callers can tell the shape checks apart.
 func TestConsistentRootsForSizesErrorsAreDistinct(t *testing.T) {
-	for _, err := range []error{
-		ErrSizesNotIncreasing, ErrIncompleteTreeSize,
+	sentinels := []error{
+		ErrAccumulatorProofLen, ErrSizesNotIncreasing, ErrIncompleteTreeSize,
 		ErrConsistencyPeakCount, ErrConsistencyPathLength,
-		ErrConsistencyRootMismatch,
-	} {
-		require.False(t, errors.Is(err, ErrAccumulatorProofLen))
+		ErrConsistencyRootMismatch, ErrConsistencyCheck,
+	}
+	for i, a := range sentinels {
+		for j, b := range sentinels {
+			require.Equal(t, i == j, errors.Is(a, b), "%v vs %v", a, b)
+		}
 	}
 }
 

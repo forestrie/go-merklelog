@@ -1,9 +1,11 @@
 package massifs
 
 import (
+	"bytes"
 	"crypto/elliptic"
 	"crypto/rand"
 	"fmt"
+	"math"
 	"math/big"
 
 	"github.com/fxamacker/cbor/v2"
@@ -72,10 +74,16 @@ func WithUnprotectedExtras(extras map[int64]cbor.RawMessage) CheckpointSignOptio
 // the consistency proof in the unprotected header.
 //
 // The signer is the log's COSE signer (the sealer's delegated ES256/KMS key,
-// or a root key). The protected header is {1: alg, 395: vds=3}; the contract
-// reads the algorithm from label 1 and derives the same detached payload from
-// the proof, so the signature verifies on-chain. The delegation proof and CWT
-// claims are added by the sealer/consumer layers as needed.
+// or a root key). The protected header is
+// {1: alg, 395: vds=3, -65933: tree-size-2}: the contract reads the algorithm
+// from label 1 and derives the same detached payload from the proof, so the
+// signature verifies on-chain, and tree-size-2, the size the accumulator was
+// read at, is signed alongside it (ADR-0066). Without that the same signed
+// accumulator is accepted at every size with the same peak count. The
+// contract and every off-chain verifier require the signed tree-size-2 to
+// equal the declared one; tree-size-1 is unsigned prover context and a
+// verifier takes the origin from state it already trusts. The delegation
+// proof and CWT claims are added by the sealer/consumer layers as needed.
 //
 // With WithPeakReceipts, one additional detached-payload COSE_Sign1 is signed
 // per accumulator peak and carried in the unprotected header, enabling any
@@ -90,9 +98,10 @@ func SignCheckpointReceipt(
 		opt(&options)
 	}
 
-	protected, err := canonicalReceiptCBOR.Marshal(map[int64]int64{
-		checkpointLabelAlg: int64(signer.Algorithm()),
-		checkpointLabelVDS: CheckpointVDSConsistency,
+	protected, err := canonicalReceiptCBOR.Marshal(map[int64]any{
+		checkpointLabelAlg:       int64(signer.Algorithm()),
+		checkpointLabelVDS:       CheckpointVDSConsistency,
+		CheckpointLabelTreeSize2: proof.TreeSize2,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("encode protected header: %w", err)
@@ -174,21 +183,87 @@ func SignPeakReceipts(signer cose.Signer, kid []byte, accumulator [][]byte) ([][
 	return receipts, nil
 }
 
+// strictHeaderCBOR decodes protected headers: duplicate keys, indefinite
+// lengths and tags are rejected, so that the signed bytes have exactly one
+// reading. A canonical parser (the univocity contract's) and this reader
+// must agree on every accepted header.
+var strictHeaderCBOR cbor.DecMode
+
+func init() {
+	dm, err := cbor.DecOptions{
+		DupMapKey:   cbor.DupMapKeyEnforcedAPF,
+		IndefLength: cbor.IndefLengthForbidden,
+		TagsMd:      cbor.TagsForbidden,
+	}.DecMode()
+	if err != nil {
+		panic(fmt.Sprintf("massifs: strict cbor mode: %v", err))
+	}
+	strictHeaderCBOR = dm
+}
+
+// decodeProtectedHeader decodes a checkpoint receipt's protected header
+// strictly and requires it to be in canonical form: re-encoding the decoded
+// map must reproduce the input bytes, so a non-canonical integer encoding or
+// key order is rejected rather than read.
+func decodeProtectedHeader(protectedHeader []byte) (map[int64]any, error) {
+	var m map[int64]any
+	if err := strictHeaderCBOR.Unmarshal(protectedHeader, &m); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrProtectedHeaderInvalid, err)
+	}
+	canonical, err := canonicalReceiptCBOR.Marshal(m)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrProtectedHeaderInvalid, err)
+	}
+	if !bytes.Equal(canonical, protectedHeader) {
+		return nil, fmt.Errorf("%w: not canonical cbor", ErrProtectedHeaderInvalid)
+	}
+	return m, nil
+}
+
 // ProtectedHeaderAlgorithm reads the COSE algorithm from a checkpoint receipt's
 // protected header (label 1), as the contract does. Useful for consumers
 // selecting a verification path.
 func ProtectedHeaderAlgorithm(protectedHeader []byte) (int64, error) {
-	var m map[int64]cbor.RawMessage
-	if err := cbor.Unmarshal(protectedHeader, &m); err != nil {
-		return 0, fmt.Errorf("decode protected header: %w", err)
+	m, err := decodeProtectedHeader(protectedHeader)
+	if err != nil {
+		return 0, err
 	}
-	raw, ok := m[checkpointLabelAlg]
+	v, ok := m[checkpointLabelAlg]
 	if !ok {
-		return 0, fmt.Errorf("protected header has no algorithm (label %d)", checkpointLabelAlg)
+		return 0, fmt.Errorf("%w: protected header has no algorithm (label %d)",
+			ErrProtectedHeaderInvalid, checkpointLabelAlg)
 	}
-	var alg int64
-	if err := cbor.Unmarshal(raw, &alg); err != nil {
-		return 0, fmt.Errorf("decode algorithm: %w", err)
+	switch alg := v.(type) {
+	case int64:
+		return alg, nil
+	case uint64:
+		if alg > math.MaxInt64 {
+			return 0, fmt.Errorf("%w: algorithm %d out of range", ErrProtectedHeaderInvalid, alg)
+		}
+		return int64(alg), nil
+	default:
+		return 0, fmt.Errorf("%w: algorithm is not an integer", ErrProtectedHeaderInvalid)
 	}
-	return alg, nil
+}
+
+// ProtectedHeaderTreeSize reads the signed tree-size-2 from a checkpoint
+// receipt's protected header (label CheckpointLabelTreeSize2, ADR-0066). It
+// returns ErrSignedSizeMissing when the label is absent, which is the case
+// for any header signed before ADR-0066 (the {1, 395} form), and
+// ErrProtectedHeaderInvalid when the header is not canonical or the value is
+// not an unsigned integer.
+func ProtectedHeaderTreeSize(protectedHeader []byte) (uint64, error) {
+	m, err := decodeProtectedHeader(protectedHeader)
+	if err != nil {
+		return 0, err
+	}
+	v, ok := m[CheckpointLabelTreeSize2]
+	if !ok {
+		return 0, fmt.Errorf("%w: label %d", ErrSignedSizeMissing, CheckpointLabelTreeSize2)
+	}
+	size, ok := v.(uint64)
+	if !ok {
+		return 0, fmt.Errorf("%w: tree-size-2 is not an unsigned integer", ErrProtectedHeaderInvalid)
+	}
+	return size, nil
 }

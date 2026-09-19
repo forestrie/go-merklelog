@@ -6,15 +6,16 @@ import (
 	"github.com/fxamacker/cbor/v2"
 )
 
-// Checkpoint format v3 (ADR-0046): the sealed checkpoint object is a
-// draft-bryce COSE Receipt of Consistency. It is a COSE Sign1 with a detached
-// payload (the raw concatenation of the accumulator peaks, see
-// DetachedPayload), carrying one consistency proof from the previous
-// checkpoint to this seal. A publisher decodes it into the pre-decoded parts
-// the univocity publishCheckpoint contract takes, and chains the proofs from
-// consecutive checkpoints into the ConsistencyProof[] calldata when catching
-// up over multiple seals (one seal -> one proof; the chain is assembled at
-// publish time).
+// Checkpoint format v3 (ADR-0046, sizes: ADR-0066): the sealed checkpoint
+// object is a draft-bryce COSE Receipt of Consistency. It is a COSE Sign1
+// with a detached payload (the raw concatenation of the accumulator peaks,
+// see DetachedPayload), carrying one consistency proof from the previous
+// checkpoint to this seal, and a protected header that also signs that
+// proof's tree-size-2 (ADR-0066). A publisher decodes it
+// into the pre-decoded parts the univocity publishCheckpoint contract takes,
+// and chains the proofs from consecutive checkpoints into the
+// ConsistencyProof[] calldata when catching up over multiple seals (one seal
+// -> one proof; the chain is assembled at publish time).
 //
 // This is the single source of the format for both the producer (the sealer,
 // via rootsigner) and the consumers (verify/replicate); higher layers
@@ -42,6 +43,18 @@ const (
 	// (numbers < -65535 are reserved for private use). Allocation in this
 	// range MUST be coordinated Forestrie wide.
 	COSEPrivateStart int64 = -65535
+
+	// CheckpointLabelTreeSize2 is the protected header label carrying the
+	// signed tree-size-2 of the consistency proof: the size at which the
+	// signed accumulator was read (ADR-0066; protocol spec/label-registry.md).
+	// It is an interim private-use value following the registry's derived
+	// convention (COSEPrivateStart - <related label>), treating 398 as the
+	// conceptual protected-header slot after vds (395), vdp (396) and 397.
+	// It is a uint and MUST be present on a receipt of consistency under this
+	// profile. tree-size-1 is not signed: it travels in the unprotected
+	// consistency-proof structure as prover context, and every verifier takes
+	// the origin size from state it already trusts (ADR-0066 D5).
+	CheckpointLabelTreeSize2 int64 = COSEPrivateStart - 398
 
 	// SealPeakReceiptsLabel is the private-use unprotected header label under
 	// which a checkpoint carries pre-signed peak inclusion receipts: one

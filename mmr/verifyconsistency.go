@@ -22,10 +22,17 @@ func CheckConsistency(
 	store indexStoreGetter, hasher hash.Hash,
 	mmrSizeA, mmrSizeB uint64, peakHashesA [][]byte) (bool, [][]byte, error) {
 
-	// Obtain the proofs from the current store
-	cp, err := IndexConsistencyProof(store, mmrSizeA-1, mmrSizeB-1)
-	if err != nil {
-		return false, nil, err
+	// Obtain the proofs from the current store. From an empty origin nothing
+	// is proven: no paths, and the whole of MMR(B) is new.
+	var cp ConsistencyProof
+	if mmrSizeA == 0 {
+		cp = ConsistencyProof{MMRSizeA: 0, MMRSizeB: mmrSizeB}
+	} else {
+		var err error
+		cp, err = IndexConsistencyProof(store, mmrSizeA-1, mmrSizeB-1)
+		if err != nil {
+			return false, nil, err
+		}
 	}
 
 	// Obtain the expected resulting peaks from the current store
@@ -104,7 +111,12 @@ func VerifyConsistency(
 // accumulator of the one state must be supplied for both sides, with one empty
 // path per peak.
 func verifySameState(cp ConsistencyProof, peaksFrom, peaksTo [][]byte) (bool, [][]byte, error) {
-	n := bits.OnesCount64(PeaksBitmap(cp.MMRSizeA))
+	// The one state must be a complete mmr, exactly as a target must be.
+	to := PeaksBitmap(cp.MMRSizeA)
+	if MMRSizeForLeafCount(to) != cp.MMRSizeA {
+		return false, nil, fmt.Errorf("%w: size=%d", ErrIncompleteTreeSize, cp.MMRSizeA)
+	}
+	n := bits.OnesCount64(to)
 	if len(peaksFrom) != n || len(cp.Path) != n {
 		return false, nil, fmt.Errorf(
 			"%w: %d peaks for size %d, got %d accumulator entries and %d paths",

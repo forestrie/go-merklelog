@@ -11,7 +11,7 @@ import (
 // with a detached payload (the raw concatenation of the accumulator peaks,
 // see DetachedPayload), carrying one consistency proof from the previous
 // checkpoint to this seal, and a protected header that also signs that
-// proof's tree-size-1 and tree-size-2 (ADR-0066 D1). A publisher decodes it
+// proof's tree-size-2 (ADR-0066). A publisher decodes it
 // into the pre-decoded parts the univocity publishCheckpoint contract takes,
 // and chains the proofs from consecutive checkpoints into the
 // ConsistencyProof[] calldata when catching up over multiple seals (one seal
@@ -44,15 +44,16 @@ const (
 	// range MUST be coordinated Forestrie wide.
 	COSEPrivateStart int64 = -65535
 
-	// CheckpointLabelTreeSize1 and CheckpointLabelTreeSize2 are the protected
-	// header labels carrying the signed consistency proof's tree-size-1 and
-	// tree-size-2 (ADR-0066 D1, D3; protocol spec/label-registry.md). They are
-	// interim private-use values following the registry's derived convention
-	// (COSEPrivateStart - <related label>), treating 397 and 398 as the next
-	// conceptual protected-header slots after vds (395) and vdp (396). Both
-	// are uint and MUST be present on a receipt of consistency under this
-	// profile (ADR-0066 D4).
-	CheckpointLabelTreeSize1 int64 = COSEPrivateStart - 397
+	// CheckpointLabelTreeSize2 is the protected header label carrying the
+	// signed tree-size-2 of the consistency proof: the size at which the
+	// signed accumulator was read (ADR-0066; protocol spec/label-registry.md).
+	// It is an interim private-use value following the registry's derived
+	// convention (COSEPrivateStart - <related label>), treating 398 as the
+	// conceptual protected-header slot after vds (395), vdp (396) and 397.
+	// It is a uint and MUST be present on a receipt of consistency under this
+	// profile. tree-size-1 is not signed: it travels in the unprotected
+	// consistency-proof structure as prover context, and every verifier takes
+	// the origin size from state it already trusts (ADR-0066 D5).
 	CheckpointLabelTreeSize2 int64 = COSEPrivateStart - 398
 
 	// SealPeakReceiptsLabel is the private-use unprotected header label under

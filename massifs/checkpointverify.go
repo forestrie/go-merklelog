@@ -15,23 +15,49 @@ import (
 // trusted store.
 var ErrVerifierRequired = errors.New("a COSE verifier is required to verify a checkpoint receipt")
 
-// checkSignedSizes requires the tree sizes signed in the receipt's protected
-// header (ADR-0066 D1) to equal the sizes the receipt's consistency proof
-// declares (D5.5). Without this the same signed accumulator is accepted at
-// every size with the same peak count: a first checkpoint signed for size 1
-// verifies as size 2^64-1, and a 7 -> 8 extension verifies as 7 -> 10. The
-// receipt carries a single proof, so the D2 chain endpoints are that proof's
-// own sizes.
-func checkSignedSizes(receipt *CheckpointReceipt) error {
-	signed1, signed2, err := ProtectedHeaderTreeSizes(receipt.ProtectedHeader)
+// nodeWidth is the byte length of every mmr node this package signs and
+// verifies (sha256). The detached payload is a raw concatenation, so without
+// a fixed width the same signed bytes could be split into entries at other
+// boundaries and still verify.
+const nodeWidth = sha256.Size
+
+// checkSignedSize requires the tree-size-2 signed in the receipt's protected
+// header (ADR-0066) to equal the size the receipt's consistency proof
+// declares, and that size to be a complete mmr size. Without the first, the
+// same signed accumulator is accepted at every size with the same peak
+// count: a first checkpoint signed for size 1 verifies as size 2^64-1, and a
+// 7 -> 8 extension verifies as 7 -> 10. Without the second, mmr.Peaks reads
+// no peaks at all and the signature would be checked over an empty payload.
+func checkSignedSize(receipt *CheckpointReceipt) (uint64, error) {
+	signed, err := ProtectedHeaderTreeSize(receipt.ProtectedHeader)
 	if err != nil {
-		return fmt.Errorf("%w: %w", ErrSignedSizeMismatch, err)
+		return 0, err
 	}
-	if signed1 != receipt.Proof.TreeSize1 || signed2 != receipt.Proof.TreeSize2 {
-		return fmt.Errorf(
-			"%w: signed (%d, %d), declared (%d, %d)",
-			ErrSignedSizeMismatch, signed1, signed2,
-			receipt.Proof.TreeSize1, receipt.Proof.TreeSize2)
+	size := receipt.Proof.TreeSize2
+	if signed != size {
+		return 0, fmt.Errorf(
+			"%w: signed %d, declared %d", ErrSignedSizeMismatch, signed, size)
+	}
+	if size == 0 || mmr.MMRSizeForLeafCount(mmr.PeaksBitmap(size)) != size {
+		return 0, fmt.Errorf("%w: tree-size-2 %d", mmr.ErrIncompleteTreeSize, size)
+	}
+	return size, nil
+}
+
+// checkNodeWidths requires every path node and right peak of the proof to be
+// nodeWidth bytes.
+func checkNodeWidths(proof *ConsistencyProof) error {
+	for i, path := range proof.Paths {
+		for j, node := range path {
+			if len(node) != nodeWidth {
+				return fmt.Errorf("%w: path %d node %d is %d bytes", ErrNodeWidth, i, j, len(node))
+			}
+		}
+	}
+	for i, peak := range proof.RightPeaks {
+		if len(peak) != nodeWidth {
+			return fmt.Errorf("%w: right peak %d is %d bytes", ErrNodeWidth, i, len(peak))
+		}
 	}
 	return nil
 }
@@ -53,9 +79,9 @@ func verifyReceiptSignature(receipt *CheckpointReceipt, accumulator [][]byte, ve
 }
 
 // VerifyCheckpointReceipt verifies a format-v3 checkpoint receipt against the
-// log data. The signed tree sizes must equal the proof's declared sizes; the
-// accumulator is then read from the massif nodes at the sealed size (proof
-// tree-size-2) and the signature is checked over the COSE Sig_structure of
+// log data. The signed tree-size-2 must equal the proof's declared size and
+// be a complete mmr size; the accumulator is then read from the massif nodes
+// at that size and the signature is checked over the COSE Sig_structure of
 // its detached payload - the same bytes the univocity contract verifies. The
 // receipt's consistency proof is for the publisher/on-chain chaining; a local
 // verifier gets the accumulator straight from the massif, so any alteration of
@@ -68,16 +94,16 @@ func VerifyCheckpointReceipt(
 	if verifier == nil {
 		return nil, ErrVerifierRequired
 	}
-	if err := checkSignedSizes(receipt); err != nil {
+	size, err := checkSignedSize(receipt)
+	if err != nil {
 		return nil, err
-	}
-	size := receipt.Proof.TreeSize2
-	if size == 0 {
-		return nil, fmt.Errorf("%w: receipt commits to an empty mmr", ErrSealVerifyFailed)
 	}
 	accumulator, err := mmr.PeakHashes(store, size-1)
 	if err != nil {
 		return nil, fmt.Errorf("accumulator for sealed size %d: %w", size, err)
+	}
+	if len(accumulator) == 0 {
+		return nil, fmt.Errorf("%w: no peaks for sealed size %d", ErrSealVerifyFailed, size)
 	}
 	if err := verifyReceiptSignature(receipt, accumulator, verifier); err != nil {
 		return nil, err
@@ -89,15 +115,16 @@ func VerifyCheckpointReceipt(
 // data, from a state the caller already trusts: the accumulator of
 // MMR(trustedSize), typically the caller's previously verified checkpoint
 // (trustedSize 0 and an empty accumulator for a log the caller has no state
-// for). This is the third-party verification path of ADR-0066 D8: the
-// receipt's consistency proof is folded from the trusted accumulator with
+// for). This is the third-party verification path of ADR-0066: the receipt's
+// consistency proof is folded from the trusted accumulator with
 // mmr.ConsistentRootsForSizes, which fixes the proof shape from the two
 // sizes, the right peaks complete the sealed accumulator, and the signature
 // is checked over that accumulator.
 //
-// trustedSize is compared with the receipt's declared and signed tree-size-1,
-// so the proof cannot select its own origin (D5.4). Returns the verified
-// accumulator of MMR(tree-size-2) on success.
+// The origin is the caller's trustedSize, never the receipt's: the declared
+// tree-size-1 is unsigned prover context and must equal trustedSize for the
+// proof to apply. Returns the verified accumulator of MMR(tree-size-2) on
+// success.
 func VerifyCheckpointReceiptFromState(
 	trustedSize uint64, trustedAccumulator [][]byte,
 	receipt *CheckpointReceipt, verifier cose.Verifier,
@@ -105,24 +132,28 @@ func VerifyCheckpointReceiptFromState(
 	if verifier == nil {
 		return nil, ErrVerifierRequired
 	}
-	if err := checkSignedSizes(receipt); err != nil {
+	size, err := checkSignedSize(receipt)
+	if err != nil {
 		return nil, err
 	}
 	proof := &receipt.Proof
 	if proof.TreeSize1 != trustedSize {
 		return nil, fmt.Errorf(
-			"%w: declared tree-size-1 %d, trusted size %d",
-			ErrSignedSizeMismatch, proof.TreeSize1, trustedSize)
+			"%w: proof is from size %d, trusted state is size %d",
+			ErrConsistencyProofCheck, proof.TreeSize1, trustedSize)
+	}
+	if err := checkNodeWidths(proof); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrConsistencyProofCheck, err)
 	}
 	roots, expectedRight, err := mmr.ConsistentRootsForSizes(
-		sha256.New(), trustedSize, proof.TreeSize2, trustedAccumulator, proof.Paths)
+		sha256.New(), trustedSize, size, trustedAccumulator, proof.Paths)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrConsistencyProofCheck, err)
 	}
 	if len(proof.RightPeaks) != expectedRight {
 		return nil, fmt.Errorf(
 			"%w: %d right peaks expected for %d -> %d, got %d",
-			ErrConsistencyProofCheck, expectedRight, trustedSize, proof.TreeSize2,
+			ErrConsistencyProofCheck, expectedRight, trustedSize, size,
 			len(proof.RightPeaks))
 	}
 	accumulator := make([][]byte, 0, len(roots)+len(proof.RightPeaks))

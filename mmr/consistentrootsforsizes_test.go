@@ -434,3 +434,21 @@ func TestVerifyConsistencyRejectsOffShapeTarget(t *testing.T) {
 	_, _, err = VerifyConsistency(hasher, cp, peaksFrom, append(peaksTo, replacementHash(0x01)))
 	assert.ErrorIs(t, err, ErrConsistencyCheck)
 }
+
+// Equal sizes must still be a complete mmr size, and a zero origin does not
+// underflow the proof construction.
+func TestVerifyConsistencyEqualIncompleteSizeAndZeroOrigin(t *testing.T) {
+	db := NewCanonicalTestDB(t)
+	hasher := sha256.New()
+	peaks, err := PeakHashes(db, 5)
+	require.NoError(t, err)
+	_, _, err = VerifyConsistency(hasher, ConsistencyProof{MMRSizeA: 6, MMRSizeB: 6, Path: [][][]byte{{}, {}}}, peaks, peaks)
+	assert.ErrorIs(t, err, ErrIncompleteTreeSize)
+
+	ok, got, err := CheckConsistency(db, hasher, 0, 31, [][]byte{})
+	require.NoError(t, err)
+	assert.True(t, ok)
+	assert.Len(t, got, 1)
+	_, _, err = CheckConsistency(db, hasher, 0, 30, [][]byte{})
+	assert.ErrorIs(t, err, ErrIncompleteTreeSize)
+}

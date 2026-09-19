@@ -44,12 +44,10 @@ func TestSignCheckpointReceiptProducesVerifiableES256(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(-7), alg)
 
-	// The signed tree sizes equal the proof's sizes (ADR-0066 D1, D2: this
-	// function signs a single proof).
-	s1, s2, err := ProtectedHeaderTreeSizes(r.ProtectedHeader)
+	// The signed tree-size-2 equals the proof's (ADR-0066).
+	signed, err := ProtectedHeaderTreeSize(r.ProtectedHeader)
 	require.NoError(t, err)
-	require.Equal(t, proof.TreeSize1, s1)
-	require.Equal(t, proof.TreeSize2, s2)
+	require.Equal(t, proof.TreeSize2, signed)
 
 	// A first-checkpoint accumulator is exactly the proof's right-peaks; verify
 	// the ES256 signature over the Sig_structure of that detached payload.
@@ -98,17 +96,18 @@ func TestSignCheckpointReceiptEmitsLowSSignatures(t *testing.T) {
 }
 
 // SignCheckpointReceipt's protected header must byte-match across
-// implementations (ADR-0066 D1, D3; the fxamacker canonical encoder is
-// expected to place the four labels in RFC 8949 canonical key order: 1, 395,
-// -65932, -65933). These vectors are cross-language KAT material.
+// implementations (ADR-0066; the fxamacker canonical encoder places the three
+// labels in the order 1, 395, -65933, which is both RFC 7049 length-first and
+// RFC 8949 bytewise order for these keys). These vectors are cross-language
+// KAT material.
 func TestSignCheckpointReceiptProtectedHeaderExactBytes(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		s1, s2     uint64
 		wantHeader string
 	}{
-		{"sizes 0,1", 0, 1, "a4012619018b033a0001018b003a0001018c01"},
-		{"sizes 7,8", 7, 8, "a4012619018b033a0001018b073a0001018c08"},
+		{"sizes 0,1", 0, 1, "a3012619018b033a0001018c01"},
+		{"sizes 7,8", 7, 8, "a3012619018b033a0001018c08"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -131,29 +130,69 @@ func TestSignCheckpointReceiptProtectedHeaderExactBytes(t *testing.T) {
 
 			require.Equal(t, tc.wantHeader, hex.EncodeToString(r.ProtectedHeader))
 
-			s1, s2, err := ProtectedHeaderTreeSizes(r.ProtectedHeader)
+			signed, err := ProtectedHeaderTreeSize(r.ProtectedHeader)
 			require.NoError(t, err)
-			require.Equal(t, tc.s1, s1)
-			require.Equal(t, tc.s2, s2)
+			require.Equal(t, tc.s2, signed)
 		})
 	}
 }
 
-// ProtectedHeaderTreeSizes must reject a protected header signed before
-// ADR-0066: the {1: alg, 395: vds} form carries neither tree-size label.
-func TestProtectedHeaderTreeSizesErrorsWithoutLabels(t *testing.T) {
+// ProtectedHeaderTreeSize must reject a protected header signed before
+// ADR-0066: the {1: alg, 395: vds} form carries no tree-size label.
+func TestProtectedHeaderTreeSizeErrorsWithoutLabel(t *testing.T) {
 	protected, err := canonicalReceiptCBOR.Marshal(map[int64]any{
 		checkpointLabelAlg: int64(-7),
 		checkpointLabelVDS: CheckpointVDSConsistency,
 	})
 	require.NoError(t, err)
 
-	_, _, err = ProtectedHeaderTreeSizes(protected)
-	require.Error(t, err)
+	_, err = ProtectedHeaderTreeSize(protected)
+	require.ErrorIs(t, err, ErrSignedSizeMissing)
+
+	// The algorithm is still readable from the old form.
+	alg, err := ProtectedHeaderAlgorithm(protected)
+	require.NoError(t, err)
+	require.Equal(t, int64(-7), alg)
 }
 
-// ProtectedHeaderTreeSizes round-trips the sizes SignCheckpointReceipt signs.
-func TestProtectedHeaderTreeSizesRoundTrip(t *testing.T) {
+// The protected header is signed as opaque bytes, so it must have exactly
+// one reading: every non-canonical encoding of {1: -7, 395: 3, -65933: 8} is
+// rejected rather than decoded, so a canonical parser (the contract) and this
+// reader cannot disagree on the signed size.
+func TestProtectedHeaderTreeSizeRejectsNonCanonicalHeaders(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		hex  string
+	}{
+		{"duplicate size label, 4 then 8", "a4012619018b033a0001018c043a0001018c08"},
+		{"non-canonical uint for 8", "a3012619018b033a0001018c1a00000008"},
+		{"non-canonical uint for 8 (1 byte form)", "a3012619018b033a0001018c1808"},
+		{"indefinite-length map", "bf012619018b033a0001018c08ff"},
+		{"reversed key order", "a33a0001018c0819018b030126"},
+		{"tagged size", "a3012619018b033a0001018cc108"},
+		{"bignum size", "a3012619018b033a0001018cc24108"},
+		{"float size", "a3012619018b033a0001018cf94800"},
+		{"negative size", "a3012619018b033a0001018c27"},
+		{"trailing byte", "a3012619018b033a0001018c0800"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			header, err := hex.DecodeString(tc.hex)
+			require.NoError(t, err)
+			_, err = ProtectedHeaderTreeSize(header)
+			require.ErrorIs(t, err, ErrProtectedHeaderInvalid)
+		})
+	}
+
+	// The canonical form of the same map is accepted.
+	header, err := hex.DecodeString("a3012619018b033a0001018c08")
+	require.NoError(t, err)
+	signed, err := ProtectedHeaderTreeSize(header)
+	require.NoError(t, err)
+	require.Equal(t, uint64(8), signed)
+}
+
+// ProtectedHeaderTreeSize round-trips the size SignCheckpointReceipt signs.
+func TestProtectedHeaderTreeSizeRoundTrip(t *testing.T) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
 	signer := mlcose.NewTestCoseSigner(t, *key)
@@ -169,10 +208,9 @@ func TestProtectedHeaderTreeSizesRoundTrip(t *testing.T) {
 	r, err := DecodeCheckpointReceipt(receiptBytes)
 	require.NoError(t, err)
 
-	s1, s2, err := ProtectedHeaderTreeSizes(r.ProtectedHeader)
+	signed, err := ProtectedHeaderTreeSize(r.ProtectedHeader)
 	require.NoError(t, err)
-	require.Equal(t, proof.TreeSize1, s1)
-	require.Equal(t, proof.TreeSize2, s2)
+	require.Equal(t, proof.TreeSize2, signed)
 }
 
 func decodePeakReceiptSignatures(t *testing.T, receipts [][]byte) [][]byte {

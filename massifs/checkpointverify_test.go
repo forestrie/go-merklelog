@@ -101,24 +101,63 @@ func TestVerifyCheckpointReceiptTamperedLogFails(t *testing.T) {
 
 // A declared sealed size other than the signed one is rejected by the signed
 // size comparison before any accumulator is read: the same signed peaks would
-// otherwise be read at another height (ADR-0066).
+// otherwise be read at another height (ADR-0066). tree-size-1 is unsigned
+// prover context: changing it does not affect the store-backed verifier,
+// which reads the accumulator at tree-size-2 only.
 func TestVerifyCheckpointReceiptReplacedProofSizeFails(t *testing.T) {
 	store, sizes := newFixtureMMR(t, 7)
 	receipt, key := signFixtureCheckpoint(t, store, 0, sizes[6])
+	verifier := newES256Verifier(t, &key.PublicKey)
 
 	receipt.Proof.TreeSize2 = sizes[2]
-	_, err := VerifyCheckpointReceipt(store, &receipt, newES256Verifier(t, &key.PublicKey))
+	_, err := VerifyCheckpointReceipt(store, &receipt, verifier)
 	require.ErrorIs(t, err, ErrSignedSizeMismatch)
 
 	receipt.Proof.TreeSize2 = sizes[6]
 	receipt.Proof.TreeSize1 = sizes[1]
-	_, err = VerifyCheckpointReceipt(store, &receipt, newES256Verifier(t, &key.PublicKey))
-	require.ErrorIs(t, err, ErrSignedSizeMismatch)
+	_, err = VerifyCheckpointReceipt(store, &receipt, verifier)
+	require.NoError(t, err)
 }
 
-// A protected header without the size labels (the {alg, vds} form) is
-// rejected: the sizes must be signed.
-func TestVerifyCheckpointReceiptRequiresSignedSizes(t *testing.T) {
+// A signed tree-size-2 that is not a complete mmr size, including 2^64-1
+// where the peak computation wraps, is rejected instead of being read as an
+// empty accumulator.
+func TestVerifyCheckpointReceiptRejectsIncompleteSignedSize(t *testing.T) {
+	store, _ := newFixtureMMR(t, 7)
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	signer := mlcose.NewTestCoseSigner(t, *key)
+	verifier := newES256Verifier(t, &key.PublicKey)
+
+	sign := func(size uint64) CheckpointReceipt {
+		proof := ConsistencyProof{TreeSize1: 0, TreeSize2: size, Paths: [][][]byte{}, RightPeaks: [][]byte{}}
+		data, err := SignCheckpointReceipt(signer, proof, nil)
+		require.NoError(t, err)
+		receipt, err := DecodeCheckpointReceipt(data)
+		require.NoError(t, err)
+		return receipt
+	}
+	for _, size := range []uint64{2, 5, 6, 9, math.MaxUint64 - 1} {
+		receipt := sign(size)
+		_, err = VerifyCheckpointReceipt(store, &receipt, verifier)
+		require.ErrorIs(t, err, mmr.ErrIncompleteTreeSize, "size %d", size)
+		_, err = VerifyCheckpointReceiptFromState(0, nil, &receipt, verifier)
+		require.ErrorIs(t, err, mmr.ErrIncompleteTreeSize, "size %d", size)
+	}
+
+	// 2^64-1 is a complete one-peak size, but the peak computation wraps and
+	// reads no peaks: the empty accumulator must not be signed over.
+	receipt := sign(math.MaxUint64)
+	acc, err := VerifyCheckpointReceipt(store, &receipt, verifier)
+	require.ErrorIs(t, err, ErrSealVerifyFailed)
+	require.Nil(t, acc)
+	_, err = VerifyCheckpointReceiptFromState(0, nil, &receipt, verifier)
+	require.ErrorIs(t, err, ErrConsistencyProofCheck)
+}
+
+// A protected header without the size label (the {alg, vds} form) is
+// rejected: the size must be signed.
+func TestVerifyCheckpointReceiptRequiresSignedSize(t *testing.T) {
 	store, sizes := newFixtureMMR(t, 3)
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
@@ -142,9 +181,9 @@ func TestVerifyCheckpointReceiptRequiresSignedSizes(t *testing.T) {
 
 	verifier := newES256Verifier(t, &key.PublicKey)
 	_, err = VerifyCheckpointReceipt(store, &receipt, verifier)
-	require.ErrorIs(t, err, ErrSignedSizeMismatch)
+	require.ErrorIs(t, err, ErrSignedSizeMissing)
 	_, err = VerifyCheckpointReceiptFromState(0, nil, &receipt, verifier)
-	require.ErrorIs(t, err, ErrSignedSizeMismatch)
+	require.ErrorIs(t, err, ErrSignedSizeMissing)
 }
 
 // Third-party verification from a trusted state, with no log data: every
@@ -207,8 +246,8 @@ func TestVerifyCheckpointReceiptFromStateRejectsSizeSubstitution(t *testing.T) {
 }
 
 // The trusted size is the verifier's, not the proof's: a receipt whose
-// declared and signed tree-size-1 differ from the trusted size is rejected
-// even though it is internally consistent (ADR-0066 D5.4).
+// declared tree-size-1 differs from the trusted size does not apply to that
+// state (ADR-0066 D5.4).
 func TestVerifyCheckpointReceiptFromStateRequiresTrustedOrigin(t *testing.T) {
 	store, sizes := newFixtureMMR(t, 8)
 	receipt, key := signFixtureCheckpoint(t, store, sizes[3], sizes[6])
@@ -217,7 +256,29 @@ func TestVerifyCheckpointReceiptFromStateRequiresTrustedOrigin(t *testing.T) {
 
 	_, err = VerifyCheckpointReceiptFromState(
 		sizes[1], trusted, &receipt, newES256Verifier(t, &key.PublicKey))
-	require.ErrorIs(t, err, ErrSignedSizeMismatch)
+	require.ErrorIs(t, err, ErrConsistencyProofCheck)
+}
+
+// The detached payload is a raw concatenation, so the same signed bytes split
+// into entries at other boundaries would verify; every node must be the hash
+// width.
+func TestVerifyCheckpointReceiptFromStateRejectsResplitRightPeaks(t *testing.T) {
+	store, sizes := newFixtureMMR(t, 8)
+	receipt, key := signFixtureCheckpoint(t, store, 0, sizes[2])
+	require.Len(t, receipt.Proof.RightPeaks, 2)
+	verifier := newES256Verifier(t, &key.PublicKey)
+
+	flat := DetachedPayload(receipt.Proof.RightPeaks)
+	receipt.Proof.RightPeaks = [][]byte{flat[:33], flat[33:]}
+	_, err := VerifyCheckpointReceiptFromState(0, nil, &receipt, verifier)
+	require.ErrorIs(t, err, ErrNodeWidth)
+
+	folded, key := signFixtureCheckpoint(t, store, sizes[2], sizes[3])
+	trusted, err := mmr.PeakHashes(store, sizes[2]-1)
+	require.NoError(t, err)
+	folded.Proof.Paths[0][0] = folded.Proof.Paths[0][0][:31]
+	_, err = VerifyCheckpointReceiptFromState(sizes[2], trusted, &folded, newES256Verifier(t, &key.PublicKey))
+	require.ErrorIs(t, err, ErrNodeWidth)
 }
 
 // Proof shape errors from the size-driven fold surface as consistency proof

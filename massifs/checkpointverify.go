@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"math/big"
 
 	"github.com/forestrie/go-merklelog/mmr"
 	"github.com/veraison/go-cose"
@@ -65,7 +66,25 @@ func checkNodeWidths(proof *ConsistencyProof) error {
 // verifyReceiptSignature checks the receipt signature over the COSE
 // Sig_structure of the detached payload for accumulator - the same bytes the
 // univocity contract verifies.
+// p256HalfOrder is n/2 for P-256; a valid low-s signature has s <= n/2.
+var p256HalfOrder = func() *big.Int {
+	n, _ := new(big.Int).SetString("FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551", 16)
+	return new(big.Int).Rsh(n, 1)
+}()
+
 func verifyReceiptSignature(receipt *CheckpointReceipt, accumulator [][]byte, verifier cose.Verifier) error {
+	// The contract's P-256 verifier rejects a high-s signature; go-cose's does
+	// not. Reject it here so no checkpoint verifies off-chain that the chain
+	// refuses. The sealer normalises to low-s (normalizeSignatureLowS), so no
+	// genuine checkpoint is affected.
+	if alg, algErr := ProtectedHeaderAlgorithm(receipt.ProtectedHeader); algErr == nil &&
+		alg == int64(cose.AlgorithmES256) && len(receipt.Signature) == 64 {
+		s := new(big.Int).SetBytes(receipt.Signature[32:])
+		if s.Cmp(p256HalfOrder) > 0 {
+			return fmt.Errorf("%w: checkpoint receipt for sealed size %d: high-s signature",
+				ErrSealVerifyFailed, receipt.Proof.TreeSize2)
+		}
+	}
 	err := verifier.Verify(
 		SigStructure(receipt.ProtectedHeader, DetachedPayload(accumulator)),
 		receipt.Signature,

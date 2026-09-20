@@ -217,6 +217,19 @@ func decodeProtectedHeader(protectedHeader []byte) (map[int64]any, error) {
 	if !bytes.Equal(canonical, protectedHeader) {
 		return nil, fmt.Errorf("%w: not canonical cbor", ErrProtectedHeaderInvalid)
 	}
+	// ADR-0066 D9: a label the verifier does not read may carry only an
+	// integer, a byte string, a text string, false/true/null or a float
+	// (shortest form, already enforced by the canonical re-encode above).
+	// Containers, tags, undefined and other simple values are rejected so
+	// that every verifier agrees on which headers are valid.
+	for label, v := range m {
+		switch v.(type) {
+		case int64, uint64, []byte, string, bool, nil, float64, float32:
+		default:
+			return nil, fmt.Errorf("%w: label %d carries a value type the profile excludes (%T)",
+				ErrProtectedHeaderInvalid, label, v)
+		}
+	}
 	return m, nil
 }
 

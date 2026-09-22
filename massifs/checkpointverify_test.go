@@ -7,6 +7,8 @@ import (
 	"math"
 	"testing"
 
+	"github.com/fxamacker/cbor/v2"
+
 	mlcose "github.com/forestrie/go-merklelog/massifs/cose"
 	"github.com/forestrie/go-merklelog/mmr"
 	"github.com/stretchr/testify/require"
@@ -184,6 +186,109 @@ func TestVerifyCheckpointReceiptRequiresSignedSize(t *testing.T) {
 	require.ErrorIs(t, err, ErrSignedSizeMissing)
 	_, err = VerifyCheckpointReceiptFromState(0, nil, &receipt, verifier)
 	require.ErrorIs(t, err, ErrSignedSizeMissing)
+}
+
+// A protected header with no algorithm (label 1), or a non-integer under
+// label 1, is rejected with a typed error before any signature check. The
+// univocity contract's header walk rejects such a header with ClaimNotFound
+// (1) or UnexpectedMajorType; without this check the off-chain low-s guard
+// (verifyReceiptSignature) used to be silently skipped for exactly these
+// headers, because ProtectedHeaderAlgorithm reported an error that nothing
+// propagated (S-1).
+func TestVerifyCheckpointReceiptRejectsInvalidAlgorithm(t *testing.T) {
+	store, sizes := newFixtureMMR(t, 3)
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	signer := mlcose.NewTestCoseSigner(t, *key)
+	verifier := newES256Verifier(t, &key.PublicKey)
+
+	proof, err := BuildConsistencyProof(store, 0, sizes[2])
+	require.NoError(t, err)
+	accumulator, err := mmr.PeakHashes(store, sizes[2]-1)
+	require.NoError(t, err)
+
+	sign := func(t *testing.T, protected []byte) CheckpointReceipt {
+		t.Helper()
+		signature, err := signer.Sign(rand.Reader, SigStructure(protected, DetachedPayload(accumulator)))
+		require.NoError(t, err)
+		signature = normalizeSignatureLowS(signer.Algorithm(), signature)
+		data, err := EncodeCheckpointReceipt(protected, proof, signature)
+		require.NoError(t, err)
+		receipt, err := DecodeCheckpointReceipt(data)
+		require.NoError(t, err)
+		return receipt
+	}
+
+	for _, c := range []struct {
+		name    string
+		fields  map[int64]any
+		wantErr error // nil means the receipt must verify
+	}{
+		{
+			name: "alg is a well-formed integer",
+			fields: map[int64]any{
+				checkpointLabelAlg:       int64(signer.Algorithm()),
+				checkpointLabelVDS:       CheckpointVDSConsistency,
+				CheckpointLabelTreeSize2: sizes[2],
+			},
+			wantErr: nil,
+		},
+		{
+			name: "alg is absent",
+			fields: map[int64]any{
+				checkpointLabelVDS:       CheckpointVDSConsistency,
+				CheckpointLabelTreeSize2: sizes[2],
+			},
+			wantErr: ErrProtectedHeaderInvalid,
+		},
+		{
+			name: "alg is a byte string",
+			fields: map[int64]any{
+				checkpointLabelAlg:       cbor.RawMessage{0x41, 0x26}, // h'26'
+				checkpointLabelVDS:       CheckpointVDSConsistency,
+				CheckpointLabelTreeSize2: sizes[2],
+			},
+			wantErr: ErrProtectedHeaderInvalid,
+		},
+		{
+			name: "alg is a boolean",
+			fields: map[int64]any{
+				checkpointLabelAlg:       false,
+				checkpointLabelVDS:       CheckpointVDSConsistency,
+				CheckpointLabelTreeSize2: sizes[2],
+			},
+			wantErr: ErrProtectedHeaderInvalid,
+		},
+		{
+			name: "alg is null",
+			fields: map[int64]any{
+				checkpointLabelAlg:       cbor.RawMessage{0xf6}, // null
+				checkpointLabelVDS:       CheckpointVDSConsistency,
+				CheckpointLabelTreeSize2: sizes[2],
+			},
+			wantErr: ErrProtectedHeaderInvalid,
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			protected, err := canonicalReceiptCBOR.Marshal(c.fields)
+			require.NoError(t, err)
+			receipt := sign(t, protected)
+
+			_, err = VerifyCheckpointReceipt(store, &receipt, verifier)
+			if c.wantErr == nil {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, c.wantErr)
+			}
+
+			_, err = VerifyCheckpointReceiptFromState(0, nil, &receipt, verifier)
+			if c.wantErr == nil {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, c.wantErr)
+			}
+		})
+	}
 }
 
 // Third-party verification from a trusted state, with no log data: every

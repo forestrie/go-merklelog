@@ -15,6 +15,7 @@ import (
 	"errors"
 	"math/big"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/forestrie/go-merklelog/mmr"
@@ -66,6 +67,9 @@ type kat39File struct {
 			PublicXHex string `json:"public_x_hex"`
 			PublicYHex string `json:"public_y_hex"`
 		} `json:"es256"`
+		KS256 struct {
+			Address string `json:"address"`
+		} `json:"ks256"`
 	} `json:"keys"`
 	Receipts         []kat39Receipt `json:"receipts"`
 	ReceiptNegatives []kat39Receipt `json:"receipt_negatives"`
@@ -218,6 +222,28 @@ func TestKAT39ProtectedHeaders(t *testing.T) {
 	}
 }
 
+// kat39Verifier returns the verifier for a row's algorithm. Every row the
+// univocity contract accepts must be verifiable here: dispatch on chain is
+// by the receipt's signed algorithm label, so a KS256 row is one a
+// KS256-rooted log can anchor.
+func kat39Verifier(t *testing.T, f *kat39File, alg int64) cose.Verifier {
+	t.Helper()
+	switch alg {
+	case int64(cose.AlgorithmES256):
+		return kat39ES256Verifier(t, f)
+	case int64(AlgorithmKS256):
+		addr := kat39Bytes(t, strings.TrimPrefix(f.Keys.KS256.Address, "0x"))
+		v, err := NewKS256Verifier(addr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	default:
+		t.Fatalf("KAT row carries algorithm %d, which no verifier here covers", alg)
+		return nil
+	}
+}
+
 func kat39ES256Verifier(t *testing.T, f *kat39File) cose.Verifier {
 	pub := &ecdsa.PublicKey{Curve: elliptic.P256(),
 		X: new(big.Int).SetBytes(kat39Bytes(t, f.Keys.ES256.PublicXHex)),
@@ -231,11 +257,10 @@ func kat39ES256Verifier(t *testing.T, f *kat39File) cose.Verifier {
 
 func TestKAT39Receipts(t *testing.T) {
 	f := kat39Load(t)
-	verifier := kat39ES256Verifier(t, f)
+	byAlg := map[int64]int{}
 	for _, row := range f.Receipts {
-		if row.Alg != int64(cose.AlgorithmES256) {
-			continue // KS256 (secp256k1 + keccak) has no go-cose verifier; covered by univocity and canopy
-		}
+		verifier := kat39Verifier(t, f, row.Alg)
+		byAlg[row.Alg]++
 		receipt, err := DecodeCheckpointReceipt(kat39Bytes(t, row.ReceiptCborHex))
 		if err != nil {
 			t.Fatalf("%s: decode: %v", row.Name, err)
@@ -263,12 +288,19 @@ func TestKAT39Receipts(t *testing.T) {
 			t.Fatalf("%s: verified accumulator differs from the tree", row.Name)
 		}
 	}
+	// Both algorithm families the contract dispatches on must have been
+	// verified, so a row family cannot quietly stop being exercised.
+	for _, alg := range []int64{int64(cose.AlgorithmES256), int64(AlgorithmKS256)} {
+		if byAlg[alg] == 0 {
+			t.Errorf("no receipt row for algorithm %d was verified", alg)
+		}
+	}
 }
 
 func TestKAT39ReceiptNegatives(t *testing.T) {
 	f := kat39Load(t)
-	verifier := kat39ES256Verifier(t, f)
 	for _, row := range f.ReceiptNegatives {
+		verifier := kat39Verifier(t, f, row.Alg)
 		receipt, err := DecodeCheckpointReceipt(kat39Bytes(t, row.ReceiptCborHex))
 		if err != nil {
 			t.Fatalf("%s: decode: %v", row.Name, err)

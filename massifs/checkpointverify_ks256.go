@@ -64,7 +64,7 @@ type ERC1271Verifier interface {
 
 // KS256Verifier is the cose.Verifier VerifyCheckpointReceipt and
 // VerifyCheckpointReceiptFromState take for a KS256 checkpoint receipt. It
-// reproduces the contract's equation exactly:
+// performs the same signature verification as the contract's verifyKS256Raw:
 //
 //	keccak256(Sig_structure) -> ecrecover(hash, v, r, s) == signer
 //

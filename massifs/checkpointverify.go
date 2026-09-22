@@ -73,24 +73,25 @@ func checkNodeWidths(proof *ConsistencyProof) error {
 	return nil
 }
 
-// verifyReceiptSignature checks the receipt signature over the COSE
-// Sig_structure of the detached payload for accumulator - the same bytes the
-// univocity contract verifies.
 // p256HalfOrder is n/2 for P-256; a valid low-s signature has s <= n/2.
 var p256HalfOrder = func() *big.Int {
 	n, _ := new(big.Int).SetString("FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551", 16)
 	return new(big.Int).Rsh(n, 1)
 }()
 
+// verifyReceiptSignature checks the receipt signature over the COSE
+// Sig_structure of the detached payload for accumulator - the same bytes the
+// univocity contract verifies. alg is the algorithm read from the protected
+// header by checkProtectedHeader, which has already rejected a header whose
+// algorithm is absent or not an integer.
 func verifyReceiptSignature(receipt *CheckpointReceipt, alg int64, accumulator [][]byte, verifier cose.Verifier) error {
-	// The signed algorithm selects the verification equation, so the verifier
-	// supplied must be the one for the algorithm the header commits to. Only
-	// ES256 was verifiable here until KS256 joined it, and with two equations
-	// available an unchecked pairing would verify a header claiming one
-	// algorithm under the other's digest and curve — an acceptance the
-	// contract, which dispatches on the same label, would refuse. go-cose
-	// makes the same check in Sign1Message.Verify; this package builds the
-	// Sig_structure itself and so has to make it itself.
+	// The signed algorithm determines the signature scheme (digest, curve and
+	// signature encoding), so the verifier must be the one for the algorithm
+	// the header commits to. Without this check a header claiming one
+	// algorithm could be verified under another's scheme, an acceptance the
+	// contract, which dispatches on the same label, refuses. go-cose makes
+	// the same check in Sign1Message.Verify; this package builds the
+	// Sig_structure itself and so makes it here.
 	if alg != int64(verifier.Algorithm()) {
 		return fmt.Errorf(
 			"%w: checkpoint receipt for sealed size %d: signed algorithm %d, verifier for %d",
@@ -99,10 +100,7 @@ func verifyReceiptSignature(receipt *CheckpointReceipt, alg int64, accumulator [
 	// The contract's P-256 verifier rejects a high-s signature; go-cose's does
 	// not. Reject it here so no checkpoint verifies off-chain that the chain
 	// refuses. The sealer normalises to low-s (normalizeSignatureLowS), so no
-	// genuine checkpoint is affected. alg is already known to be a CBOR
-	// integer (checkProtectedHeader ran first), so unlike before this guard
-	// is never silently skipped for a header whose algorithm could not be
-	// read.
+	// genuine checkpoint is affected.
 	if alg == int64(cose.AlgorithmES256) && len(receipt.Signature) == 64 {
 		s := new(big.Int).SetBytes(receipt.Signature[32:])
 		if s.Cmp(p256HalfOrder) > 0 {

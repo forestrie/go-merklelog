@@ -62,7 +62,7 @@ entries note the affected module.
 
 - **massifs:** checkpoint receipt verification now requires the verifier's
   algorithm to equal the receipt's signed protected-header algorithm. With
-  two verification equations available, an unchecked pairing would verify a
+  two signature algorithms available, an unchecked pairing would verify a
   header committing to one algorithm under the other's digest and curve,
   which the contract, dispatching on the same label, refuses.
 

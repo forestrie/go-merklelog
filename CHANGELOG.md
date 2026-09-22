@@ -28,6 +28,19 @@ entries note the affected module.
 
 ### Added
 
+- **massifs:** `NewKS256Verifier`, a `cose.Verifier` for the private-use
+  KS256 algorithm (`AlgorithmKS256`, -65799): secp256k1 ECDSA over
+  keccak-256 of the COSE `Sig_structure`, with Ethereum's recoverable
+  65-byte `r || s || v` signature. The univocity contract accepts a KS256
+  checkpoint receipt, so `VerifyCheckpointReceipt` and
+  `VerifyCheckpointReceiptFromState` can now re-verify one; before this
+  they could verify only ES256. Rejections are typed:
+  `ErrKS256SignerAddress`, `ErrKS256SignatureLength`, `ErrKS256RecoveryID`,
+  `ErrKS256SignerMismatch`. A signer that is a contract wallet is verified
+  through ERC-1271, which needs chain state; supply it with
+  `WithERC1271`. The cross-language KAT's five `ks256/*` receipt rows are
+  no longer skipped.
+
 - **mmr:** `ConsistentRootsForSizes`, the size-driven consistency fold of
   draft-bryce-cose-receipts-mmr-profile (a port of the univocity and Python
   references, pinned to the same KAT-39 vectors), and `MMRSizeForLeafCount`.
@@ -46,6 +59,12 @@ entries note the affected module.
   related sizing failures report `ErrMBitsOverflow`.
 
 ### Fixed
+
+- **massifs:** checkpoint receipt verification now requires the verifier's
+  algorithm to equal the receipt's signed protected-header algorithm. With
+  two verification equations available, an unchecked pairing would verify a
+  header committing to one algorithm under the other's digest and curve,
+  which the contract, dispatching on the same label, refuses.
 
 - **urkle:** `NewBuilderFromFrontier` now rejects a decoded frontier whose
   `Pending` node ref is out of range (`>= Next`, or `NoRef` on a non-empty

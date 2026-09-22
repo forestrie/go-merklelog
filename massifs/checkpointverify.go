@@ -83,6 +83,19 @@ var p256HalfOrder = func() *big.Int {
 }()
 
 func verifyReceiptSignature(receipt *CheckpointReceipt, alg int64, accumulator [][]byte, verifier cose.Verifier) error {
+	// The signed algorithm selects the verification equation, so the verifier
+	// supplied must be the one for the algorithm the header commits to. Only
+	// ES256 was verifiable here until KS256 joined it, and with two equations
+	// available an unchecked pairing would verify a header claiming one
+	// algorithm under the other's digest and curve — an acceptance the
+	// contract, which dispatches on the same label, would refuse. go-cose
+	// makes the same check in Sign1Message.Verify; this package builds the
+	// Sig_structure itself and so has to make it itself.
+	if alg != int64(verifier.Algorithm()) {
+		return fmt.Errorf(
+			"%w: checkpoint receipt for sealed size %d: signed algorithm %d, verifier for %d",
+			ErrSealVerifyFailed, receipt.Proof.TreeSize2, alg, verifier.Algorithm())
+	}
 	// The contract's P-256 verifier rejects a high-s signature; go-cose's does
 	// not. Reject it here so no checkpoint verifies off-chain that the chain
 	// refuses. The sealer normalises to low-s (normalizeSignatureLowS), so no

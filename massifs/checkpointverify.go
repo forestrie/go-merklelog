@@ -80,10 +80,18 @@ func checkNodeWidths(proof *ConsistencyProof) error {
 }
 
 // checkProofChain requires the chain to start at the size the verifier
-// already trusts and to be contiguous: each proof picks up where its
-// predecessor left off. A gap or an overlap would let a relay present proofs
-// of two unrelated extensions as one, and the intermediate sizes are unsigned
-// (ADR-0066 D2), so this comparison is the only thing that links them.
+// already trusts, to be contiguous - each proof picks up where its
+// predecessor left off - and for each proof's tree-size-2 to exceed its
+// tree-size-1 (GML15-F2). A gap or an overlap would let a relay present
+// proofs of two unrelated extensions as one, and the intermediate sizes are
+// unsigned (ADR-0066 D2), so this comparison is the only thing that links
+// them. A zero-length or backwards link proves nothing and is not a
+// consistency proof: the univocity contract rejects it
+// (treeSize2 <= treeSize1, src/checkpoints/lib/consistencyReceipt.sol) and
+// the draft requires tree-size-2 to exceed tree-size-1, so a store-backed
+// verify - which only checks contiguity, having no folded state of its own to
+// reject a degenerate link the way mmr.ConsistentRootsForSizes does on the
+// from-state path - must reject the same chains the chain would.
 func checkProofChain(proofs []ConsistencyProof, trustedSize uint64) error {
 	if len(proofs) == 0 {
 		return ErrProofChainEmpty
@@ -99,6 +107,11 @@ func checkProofChain(proofs []ConsistencyProof, trustedSize uint64) error {
 			return fmt.Errorf(
 				"%w: proof %d is from size %d, proof %d ends at size %d",
 				ErrProofChainNotContiguous, i, proof.TreeSize1, i-1, from)
+		}
+		if proof.TreeSize2 <= proof.TreeSize1 {
+			return fmt.Errorf("%w: proof %d: %w: from=%d, to=%d",
+				ErrConsistencyProofCheck, i, mmr.ErrSizesNotIncreasing,
+				proof.TreeSize1, proof.TreeSize2)
 		}
 		from = proof.TreeSize2
 	}

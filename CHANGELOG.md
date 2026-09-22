@@ -35,6 +35,12 @@ entries note the affected module.
   and a non-shortest-form integer are rejected, as is a consistency-proofs
   array element that is not a byte string and a CBOR tag wrapping the
   consistency-proofs value.
+- **massifs:** `checkProofChain` (used by both `VerifyCheckpointReceipt` and
+  `VerifyCheckpointReceiptFromState`) now also requires each proof's
+  `tree-size-2` to exceed its `tree-size-1` (GML15-F2): a zero-length or
+  backwards link in a relayed chain is rejected with
+  `ErrConsistencyProofCheck` wrapping `mmr.ErrSizesNotIncreasing`, matching
+  the univocity contract and the draft.
 - **mmr:** `VerifyConsistency` now folds through `ConsistentRootsForSizes`:
   `MMRSizeB` must be a complete MMR size and every path must have exactly
   the length the two sizes imply. Failures wrap the new sentinels

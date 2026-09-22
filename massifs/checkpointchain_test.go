@@ -225,3 +225,67 @@ func TestCheckpointReceiptRejectsEmptyProofChain(t *testing.T) {
 	_, err = VerifyCheckpointReceiptFromState(0, nil, &bare, verifier)
 	require.ErrorIs(t, err, ErrProofChainEmpty)
 }
+
+// GML15-F2: a zero-length link in the middle of an otherwise contiguous
+// chain ([1->3, 3->3, 3->7]) is not a consistency proof - tree-size-2 must
+// exceed tree-size-1 - and must be rejected by both verifiers. The
+// store-backed path only checked contiguity, so a zero-length link (which is
+// trivially contiguous) previously passed it.
+func TestCheckProofChainRejectsZeroLengthLink(t *testing.T) {
+	store := kat39Store(t)
+	sizes := []uint64{1, 3, 7}
+	edges := kat39ProofChain(t, store, sizes)
+	chain := []ConsistencyProof{
+		edges[0],
+		{TreeSize1: 3, TreeSize2: 3, Paths: [][][]byte{}, RightPeaks: [][]byte{}},
+		edges[1],
+	}
+	target, err := mmr.PeakHashes(store, 6)
+	require.NoError(t, err)
+	trusted, err := mmr.PeakHashes(store, 0)
+	require.NoError(t, err)
+
+	signer, verifier := newES256Signer(t)
+	encoded, err := SignCheckpointReceiptChain(signer, chain, target)
+	require.NoError(t, err)
+	receipt, err := DecodeCheckpointReceipt(encoded)
+	require.NoError(t, err)
+
+	_, err = VerifyCheckpointReceipt(store, &receipt, verifier)
+	require.ErrorIs(t, err, ErrConsistencyProofCheck)
+	require.ErrorIs(t, err, mmr.ErrSizesNotIncreasing)
+
+	_, err = VerifyCheckpointReceiptFromState(sizes[0], trusted, &receipt, verifier)
+	require.ErrorIs(t, err, ErrConsistencyProofCheck)
+	require.ErrorIs(t, err, mmr.ErrSizesNotIncreasing)
+}
+
+// GML15-F2: a backwards link ([1->7, 7->4, 4->7]) must be rejected the same
+// way - the univocity contract requires tree-size-2 > tree-size-1
+// (src/checkpoints/lib/consistencyReceipt.sol), and the store-backed
+// contiguity check alone does not catch it (7 == 7 is contiguous).
+func TestCheckProofChainRejectsBackwardsLink(t *testing.T) {
+	store := kat39Store(t)
+	toSeven := kat39ProofChain(t, store, []uint64{1, 7})[0]
+	fromFour := kat39ProofChain(t, store, []uint64{4, 7})[0]
+	backwards := ConsistencyProof{TreeSize1: 7, TreeSize2: 4, Paths: [][][]byte{}, RightPeaks: [][]byte{}}
+	chain := []ConsistencyProof{toSeven, backwards, fromFour}
+	target, err := mmr.PeakHashes(store, 6)
+	require.NoError(t, err)
+	trusted, err := mmr.PeakHashes(store, 0)
+	require.NoError(t, err)
+
+	signer, verifier := newES256Signer(t)
+	encoded, err := SignCheckpointReceiptChain(signer, chain, target)
+	require.NoError(t, err)
+	receipt, err := DecodeCheckpointReceipt(encoded)
+	require.NoError(t, err)
+
+	_, err = VerifyCheckpointReceipt(store, &receipt, verifier)
+	require.ErrorIs(t, err, ErrConsistencyProofCheck)
+	require.ErrorIs(t, err, mmr.ErrSizesNotIncreasing)
+
+	_, err = VerifyCheckpointReceiptFromState(1, trusted, &receipt, verifier)
+	require.ErrorIs(t, err, ErrConsistencyProofCheck)
+	require.ErrorIs(t, err, mmr.ErrSizesNotIncreasing)
+}

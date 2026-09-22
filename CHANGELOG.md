@@ -20,6 +20,16 @@ entries note the affected module.
   previous `{alg, vds}` header no longer verify. Read the signed size with
   `ProtectedHeaderTreeSize`. `ProtectedHeaderAlgorithm` now also requires a
   canonical header.
+- **massifs:** A checkpoint receipt carries a chain of consistency proofs
+  rather than one (ADR-0066 D2, FOR-568). `CheckpointReceipt.Proofs` is the
+  chain; `CheckpointReceipt.Proof` is retained as a read-only copy of its
+  last element for callers written against the single-proof receipt, and is
+  not what verification reads. Producers write the draft's
+  `consistency-proofs = [ + consistency-proof ]` array, including for a
+  single proof; decoders accept the array (1..N) and, for receipts sealed
+  before it, a bare consistency-proof byte string. An empty array is
+  rejected (`ErrProofChainEmpty`), as is a chain whose links do not join
+  (`ErrProofChainNotContiguous`).
 - **mmr:** `VerifyConsistency` now folds through `ConsistentRootsForSizes`:
   `MMRSizeB` must be a complete MMR size and every path must have exactly
   the length the two sizes imply. Failures wrap the new sentinels
@@ -33,7 +43,14 @@ entries note the affected module.
   references, pinned to the same KAT-39 vectors), and `MMRSizeForLeafCount`.
 - **massifs:** `VerifyCheckpointReceiptFromState` verifies a checkpoint
   receipt from a trusted `(size, accumulator)` without log data; every proof
-  node must be the hash width (`ErrNodeWidth`).
+  node must be the hash width (`ErrNodeWidth`). It folds every proof of a
+  relayed chain in order, each from the state the previous one reached.
+- **massifs:** `SignCheckpointReceiptChain` and
+  `EncodeCheckpointReceiptChain` produce a receipt relaying several sealed
+  steps under one signature: the protected header carries the last step's
+  `tree-size-2` and the signature covers the accumulator that step reaches.
+  `SignCheckpointReceipt` and `EncodeCheckpointReceipt` are the one-proof
+  case of each.
 
 - **urkle:** Removed exported errors `ErrLeafCountDoesNotFit32` and
   `ErrLeafOrdinalDoesNotFit16`. All leaf-ordinal / capacity failures now wrap

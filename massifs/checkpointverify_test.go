@@ -38,6 +38,15 @@ func signFixtureCheckpoint(
 	return receipt, key
 }
 
+// cloneReceipt copies a receipt and its proof chain, so that a case which
+// alters one link leaves the other cases' receipts as they were: the chain is
+// a slice, and a struct copy shares its backing array.
+func cloneReceipt(r CheckpointReceipt) CheckpointReceipt {
+	c := r
+	c.Proofs = append([]ConsistencyProof(nil), r.Proofs...)
+	return c
+}
+
 func newES256Verifier(t *testing.T, pub *ecdsa.PublicKey) cose.Verifier {
 	t.Helper()
 	verifier, err := cose.NewVerifier(cose.AlgorithmES256, pub)
@@ -111,12 +120,12 @@ func TestVerifyCheckpointReceiptReplacedProofSizeFails(t *testing.T) {
 	receipt, key := signFixtureCheckpoint(t, store, 0, sizes[6])
 	verifier := newES256Verifier(t, &key.PublicKey)
 
-	receipt.Proof.TreeSize2 = sizes[2]
+	receipt.Proofs[0].TreeSize2 = sizes[2]
 	_, err := VerifyCheckpointReceipt(store, &receipt, verifier)
 	require.ErrorIs(t, err, ErrSignedSizeMismatch)
 
-	receipt.Proof.TreeSize2 = sizes[6]
-	receipt.Proof.TreeSize1 = sizes[1]
+	receipt.Proofs[0].TreeSize2 = sizes[6]
+	receipt.Proofs[0].TreeSize1 = sizes[1]
 	_, err = VerifyCheckpointReceipt(store, &receipt, verifier)
 	require.NoError(t, err)
 }
@@ -336,7 +345,7 @@ func TestVerifyCheckpointReceiptFromStateRejectsSizeSubstitution(t *testing.T) {
 	_, err = VerifyCheckpointReceiptFromState(7, trusted, &receipt, verifier)
 	require.NoError(t, err)
 
-	receipt.Proof.TreeSize2 = 10
+	receipt.Proofs[0].TreeSize2 = 10
 	_, err = VerifyCheckpointReceiptFromState(7, trusted, &receipt, verifier)
 	require.ErrorIs(t, err, ErrSignedSizeMismatch)
 
@@ -345,7 +354,7 @@ func TestVerifyCheckpointReceiptFromStateRejectsSizeSubstitution(t *testing.T) {
 	_, err = VerifyCheckpointReceiptFromState(0, nil, &first, verifier)
 	require.NoError(t, err)
 
-	first.Proof.TreeSize2 = math.MaxUint64
+	first.Proofs[0].TreeSize2 = math.MaxUint64
 	_, err = VerifyCheckpointReceiptFromState(0, nil, &first, verifier)
 	require.ErrorIs(t, err, ErrSignedSizeMismatch)
 }
@@ -370,18 +379,18 @@ func TestVerifyCheckpointReceiptFromStateRequiresTrustedOrigin(t *testing.T) {
 func TestVerifyCheckpointReceiptFromStateRejectsResplitRightPeaks(t *testing.T) {
 	store, sizes := newFixtureMMR(t, 8)
 	receipt, key := signFixtureCheckpoint(t, store, 0, sizes[2])
-	require.Len(t, receipt.Proof.RightPeaks, 2)
+	require.Len(t, receipt.Proofs[0].RightPeaks, 2)
 	verifier := newES256Verifier(t, &key.PublicKey)
 
-	flat := DetachedPayload(receipt.Proof.RightPeaks)
-	receipt.Proof.RightPeaks = [][]byte{flat[:33], flat[33:]}
+	flat := DetachedPayload(receipt.Proofs[0].RightPeaks)
+	receipt.Proofs[0].RightPeaks = [][]byte{flat[:33], flat[33:]}
 	_, err := VerifyCheckpointReceiptFromState(0, nil, &receipt, verifier)
 	require.ErrorIs(t, err, ErrNodeWidth)
 
 	folded, key := signFixtureCheckpoint(t, store, sizes[2], sizes[3])
 	trusted, err := mmr.PeakHashes(store, sizes[2]-1)
 	require.NoError(t, err)
-	folded.Proof.Paths[0][0] = folded.Proof.Paths[0][0][:31]
+	folded.Proofs[0].Paths[0][0] = folded.Proofs[0].Paths[0][0][:31]
 	_, err = VerifyCheckpointReceiptFromState(sizes[2], trusted, &folded, newES256Verifier(t, &key.PublicKey))
 	require.ErrorIs(t, err, ErrNodeWidth)
 }
@@ -400,23 +409,23 @@ func TestVerifyCheckpointReceiptFromStateRejectsOffShapeProof(t *testing.T) {
 	folded, foldedKey := signFixtureCheckpoint(t, store, sizes[2], sizes[3])
 	foldedTrusted, err := mmr.PeakHashes(store, sizes[2]-1)
 	require.NoError(t, err)
-	require.Len(t, folded.Proof.Paths, 2)
-	folded.Proof.Paths[1] = [][]byte{}
+	require.Len(t, folded.Proofs[0].Paths, 2)
+	folded.Proofs[0].Paths[1] = [][]byte{}
 	_, err = VerifyCheckpointReceiptFromState(
 		sizes[2], foldedTrusted, &folded, newES256Verifier(t, &foldedKey.PublicKey))
 	require.ErrorIs(t, err, ErrConsistencyProofCheck)
 	require.ErrorIs(t, err, mmr.ErrConsistencyPathLength)
 
 	// A surplus right peak.
-	surplus := receipt
-	surplus.Proof.RightPeaks = append(append([][]byte{}, receipt.Proof.RightPeaks...), trusted[0])
+	surplus := cloneReceipt(receipt)
+	surplus.Proofs[0].RightPeaks = append(append([][]byte{}, receipt.Proofs[0].RightPeaks...), trusted[0])
 	_, err = VerifyCheckpointReceiptFromState(sizes[3], trusted, &surplus, verifier)
 	require.ErrorIs(t, err, ErrConsistencyProofCheck)
 
 	// A replaced right peak changes the accumulator, so the signature fails.
-	replaced := receipt
-	replaced.Proof.RightPeaks = append([][]byte{}, receipt.Proof.RightPeaks...)
-	replaced.Proof.RightPeaks[0] = trusted[0]
+	replaced := cloneReceipt(receipt)
+	replaced.Proofs[0].RightPeaks = append([][]byte{}, receipt.Proofs[0].RightPeaks...)
+	replaced.Proofs[0].RightPeaks[0] = trusted[0]
 	_, err = VerifyCheckpointReceiptFromState(sizes[3], trusted, &replaced, verifier)
 	require.ErrorIs(t, err, ErrSealVerifyFailed)
 }

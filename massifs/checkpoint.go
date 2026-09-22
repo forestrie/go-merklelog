@@ -32,6 +32,9 @@ func NewCheckpoint(data []byte) (Checkpoint, error) {
 	return Checkpoint{
 		Raw:     data,
 		Receipt: receipt,
-		MMRSize: receipt.Proof.TreeSize2,
+		// The last proof's tree-size-2 is the size the protected header
+		// signs and the size the checkpoint is of; an earlier proof in a
+		// relayed chain reaches an intermediate step (ADR-0066 D2).
+		MMRSize: receipt.Proofs[len(receipt.Proofs)-1].TreeSize2,
 	}, nil
 }

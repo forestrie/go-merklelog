@@ -39,9 +39,13 @@ const (
 	// consistency-proof).
 	checkpointKeyConsistencyProof int64 = -2
 
-	// COSEPrivateStart is the start of the COSE private-use label space
-	// (numbers < -65535 are reserved for private use). Allocation in this
-	// range MUST be coordinated Forestrie wide.
+	// COSEPrivateStart is the arithmetic base Forestrie's derived private-use
+	// labels are allocated from (SealPeakReceiptsLabel and
+	// SealDelegationProofLabel below subtract a registered label from it). It
+	// is NOT the IANA boundary: IANA reserves labels less than -65536 for
+	// private use, and -65535 and -65536 themselves are Specification
+	// Required. Allocation in the private-use range MUST be coordinated
+	// Forestrie wide; see forestrie/protocol spec/label-registry.md.
 	COSEPrivateStart int64 = -65535
 
 	// CheckpointLabelTreeSize2 is the protected header label carrying the

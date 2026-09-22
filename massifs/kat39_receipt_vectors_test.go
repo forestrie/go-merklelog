@@ -21,7 +21,7 @@ import (
 	"github.com/veraison/go-cose"
 )
 
-const kat39VectorsSHA256 = "391d203b99b8dc41226694edee4eab3da3f1aa9bc651d13408d1a21b0986a8b8"
+const kat39VectorsSHA256 = "fb6bbde735537cfc97f83c52cfc4c609b4d1ed1474157910d7be0814456102c8"
 
 type kat39Expect struct {
 	Result   string `json:"result"`
@@ -32,6 +32,7 @@ type kat39Expect struct {
 
 type kat39File struct {
 	Tree struct {
+		NodesHex     []string `json:"nodes_hex"`
 		Accumulators map[string]struct {
 			PeaksHex []string `json:"peaks_hex"`
 		} `json:"accumulators"`
@@ -69,6 +70,22 @@ type kat39File struct {
 	} `json:"keys"`
 	Receipts         []kat39Receipt `json:"receipts"`
 	ReceiptNegatives []kat39Receipt `json:"receipt_negatives"`
+	ReceiptChains    []kat39Chain   `json:"receipt_chains"`
+}
+
+// kat39Chain is a receipt relaying several consistency proofs under one
+// signature (ADR-0066 D2). TrustedTreeSize1 is the size the verifier holds
+// state for, which the first step must start at.
+type kat39Chain struct {
+	Name             string `json:"name"`
+	Alg              int64  `json:"alg"`
+	TrustedTreeSize1 uint64 `json:"trusted_tree_size_1"`
+	ReceiptCborHex   string `json:"receipt_cbor_hex"`
+	Steps            []struct {
+		TreeSize1 uint64 `json:"tree_size_1"`
+		TreeSize2 uint64 `json:"tree_size_2"`
+	} `json:"steps"`
+	Expect kat39Expect `json:"expect"`
 }
 
 type kat39Receipt struct {
@@ -287,6 +304,75 @@ func TestKAT39ReceiptNegatives(t *testing.T) {
 		}[row.Expect.Reason]
 		if want != nil && !errors.Is(err, want) {
 			t.Errorf("%s: want %v, got %v", row.Name, want, err)
+		}
+	}
+}
+
+// TestKAT39ReceiptChains verifies the relayed-chain rows: a chain is folded
+// step by step from the trusted origin and the signature is checked against
+// the accumulator the last step reaches, so the accepted row must reach the
+// tree's own accumulator for the signed size and each rejected row must fail
+// for the reason it names.
+func TestKAT39ReceiptChains(t *testing.T) {
+	f := kat39Load(t)
+	if len(f.ReceiptChains) == 0 {
+		t.Fatal("the vectors carry no receipt_chains rows")
+	}
+	verifier := kat39ES256Verifier(t, f)
+	require := func(cond bool, format string, args ...any) {
+		t.Helper()
+		if !cond {
+			t.Errorf(format, args...)
+		}
+	}
+	for _, row := range f.ReceiptChains {
+		if row.Alg != int64(cose.AlgorithmES256) {
+			continue // KS256 (secp256k1 + keccak) has no go-cose verifier
+		}
+		receipt, err := DecodeCheckpointReceipt(kat39Bytes(t, row.ReceiptCborHex))
+		if err != nil {
+			t.Fatalf("%s: decode: %v", row.Name, err)
+		}
+		require(len(receipt.Proofs) == len(row.Steps),
+			"%s: %d proofs decoded, %d steps declared", row.Name, len(receipt.Proofs), len(row.Steps))
+		for i, step := range row.Steps {
+			require(receipt.Proofs[i].TreeSize1 == step.TreeSize1 &&
+				receipt.Proofs[i].TreeSize2 == step.TreeSize2,
+				"%s: step %d is %d -> %d, the row declares %d -> %d", row.Name, i,
+				receipt.Proofs[i].TreeSize1, receipt.Proofs[i].TreeSize2,
+				step.TreeSize1, step.TreeSize2)
+		}
+
+		origin := [][]byte{}
+		if row.TrustedTreeSize1 > 0 {
+			origin = kat39List(t, f.Tree.Accumulators[jsonKey(row.TrustedTreeSize1)].PeaksHex)
+		}
+		acc, err := VerifyCheckpointReceiptFromState(
+			row.TrustedTreeSize1, origin, &receipt, verifier)
+		switch row.Expect.Result {
+		case "accept":
+			if err != nil {
+				t.Errorf("%s: verify: %v", row.Name, err)
+				continue
+			}
+			target := kat39List(t, f.Tree.Accumulators[jsonKey(row.Expect.TreeSize)].PeaksHex)
+			require(kat39Equal(acc, target),
+				"%s: the folded accumulator differs from the tree's for size %d",
+				row.Name, row.Expect.TreeSize)
+		case "reject":
+			if err == nil {
+				t.Errorf("%s (%s): accepted", row.Name, row.Expect.Reason)
+				continue
+			}
+			want := map[string]error{
+				"chain_not_contiguous": ErrProofChainNotContiguous,
+				"signed_size_mismatch": ErrSignedSizeMismatch,
+			}[row.Expect.Reason]
+			if want != nil && !errors.Is(err, want) {
+				t.Errorf("%s: want %v, got %v", row.Name, want, err)
+			}
+		default:
+			t.Errorf("%s: unknown result %s", row.Name, row.Expect.Result)
 		}
 	}
 }

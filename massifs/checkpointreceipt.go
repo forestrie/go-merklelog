@@ -239,19 +239,31 @@ type cborConsistencyProof struct {
 
 // EncodeConsistencyProof encodes one consistency proof as the draft's
 // `consistency-proof = bstr .cbor [...]`: a CBOR byte string whose content is
-// the CBOR array of the four fields.
+// the CBOR array of the four fields. A nil inner path is normalised to an
+// empty array before marshalling, the same as the top-level Paths/RightPeaks
+// nil below (GML15-F3): mmr.IndexConsistencyProof (via BuildConsistencyProof)
+// returns a nil path for every tree-size-1 accumulator peak above the split,
+// and fxamacker marshals a nil [][]byte as CBOR null rather than an empty
+// array. Null has no place in the draft CDDL there, and the TS twin decoder
+// rejects it, so a copy is normalised here rather than mutating the caller's
+// slices in place.
 func EncodeConsistencyProof(p ConsistencyProof) ([]byte, error) {
+	paths := make([][][]byte, len(p.Paths))
+	copy(paths, p.Paths)
+	for i, path := range paths {
+		if path == nil {
+			paths[i] = [][]byte{}
+		}
+	}
+	rightPeaks := p.RightPeaks
+	if rightPeaks == nil {
+		rightPeaks = [][]byte{}
+	}
 	cp := cborConsistencyProof{
 		TreeSize1:  p.TreeSize1,
 		TreeSize2:  p.TreeSize2,
-		Paths:      p.Paths,
-		RightPeaks: p.RightPeaks,
-	}
-	if cp.Paths == nil {
-		cp.Paths = [][][]byte{}
-	}
-	if cp.RightPeaks == nil {
-		cp.RightPeaks = [][]byte{}
+		Paths:      paths,
+		RightPeaks: rightPeaks,
 	}
 	inner, err := canonicalReceiptCBOR.Marshal(cp)
 	if err != nil {
@@ -287,6 +299,10 @@ func DecodeConsistencyProof(bstr []byte) (ConsistencyProof, error) {
 	if cp.RightPeaks == nil {
 		cp.RightPeaks = [][]byte{}
 	}
+	// Only the top-level slices are normalised here: an inner path decoded
+	// from CBOR null is left nil, so the re-marshal below reproduces the
+	// same null and still compares equal to a proof sealed before GML15-F3,
+	// which this decoder continues to accept.
 	canonical, err := canonicalReceiptCBOR.Marshal(cp)
 	if err != nil {
 		return ConsistencyProof{}, fmt.Errorf("re-encode consistency proof array: %w", err)

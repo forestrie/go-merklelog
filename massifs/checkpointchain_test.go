@@ -67,8 +67,12 @@ func TestCheckpointReceiptChainRoundTrip(t *testing.T) {
 	got, err := DecodeCheckpointReceipt(encoded)
 	require.NoError(t, err)
 
-	require.Equal(t, proofs, got.Proofs)
-	require.Equal(t, proofs[2], got.Proof)
+	want := make([]ConsistencyProof, len(proofs))
+	for i, p := range proofs {
+		want[i] = wireRoundTripProof(t, p)
+	}
+	require.Equal(t, want, got.Proofs)
+	require.Equal(t, want[2], got.Proof)
 	require.Equal(t, []byte{0xa0}, got.ProtectedHeader)
 	require.Equal(t, []byte{0x01, 0x02}, got.Signature)
 }
@@ -85,8 +89,24 @@ func TestCheckpointReceiptSingleProofIsAChainOfOne(t *testing.T) {
 	got, err := DecodeCheckpointReceipt(encoded)
 	require.NoError(t, err)
 
-	require.Equal(t, []ConsistencyProof{proof}, got.Proofs)
-	require.Equal(t, proof, got.Proof)
+	want := wireRoundTripProof(t, proof)
+	require.Equal(t, []ConsistencyProof{want}, got.Proofs)
+	require.Equal(t, want, got.Proof)
+}
+
+// wireRoundTripProof encodes and decodes a proof, so a test can compare a
+// decoded chain against the wire-normalised form of the proof it started
+// from rather than the builder's own (GML15-F3): BuildConsistencyProof
+// leaves a nil path for a tree-size-1 accumulator peak above the split, but
+// EncodeConsistencyProof now writes it as an empty array, not CBOR null, so
+// it decodes back as an empty, non-nil path.
+func wireRoundTripProof(t *testing.T, p ConsistencyProof) ConsistencyProof {
+	t.Helper()
+	b, err := EncodeConsistencyProof(p)
+	require.NoError(t, err)
+	got, err := DecodeConsistencyProof(b)
+	require.NoError(t, err)
+	return got
 }
 
 // A chain over the canonical tree verifies from the accumulator of its first

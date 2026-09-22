@@ -41,6 +41,11 @@ entries note the affected module.
   backwards link in a relayed chain is rejected with
   `ErrConsistencyProofCheck` wrapping `mmr.ErrSizesNotIncreasing`, matching
   the univocity contract and the draft.
+- **massifs:** `EncodeConsistencyProof` now writes a nil inner path (a
+  tree-size-1 accumulator peak above the split) as an empty array, not CBOR
+  null (GML15-F3): null has no place in the draft CDDL there, and the TS
+  twin decoder rejects it. `DecodeConsistencyProof` still accepts null for
+  objects sealed before this change.
 - **mmr:** `VerifyConsistency` now folds through `ConsistentRootsForSizes`:
   `MMRSizeB` must be a complete MMR size and every path must have exactly
   the length the two sizes imply. Failures wrap the new sentinels

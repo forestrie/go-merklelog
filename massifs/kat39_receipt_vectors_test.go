@@ -77,11 +77,12 @@ type kat39File struct {
 // signature (ADR-0066 D2). TrustedTreeSize1 is the size the verifier holds
 // state for, which the first step must start at.
 type kat39Chain struct {
-	Name             string `json:"name"`
-	Alg              int64  `json:"alg"`
-	TrustedTreeSize1 uint64 `json:"trusted_tree_size_1"`
-	ReceiptCborHex   string `json:"receipt_cbor_hex"`
-	Steps            []struct {
+	Name                 string   `json:"name"`
+	Alg                  int64    `json:"alg"`
+	TrustedTreeSize1     uint64   `json:"trusted_tree_size_1"`
+	ReceiptCborHex       string   `json:"receipt_cbor_hex"`
+	ConsistencyProofsHex []string `json:"consistency_proofs_hex"`
+	Steps                []struct {
 		TreeSize1 uint64 `json:"tree_size_1"`
 		TreeSize2 uint64 `json:"tree_size_2"`
 	} `json:"steps"`
@@ -373,6 +374,49 @@ func TestKAT39ReceiptChains(t *testing.T) {
 			}
 		default:
 			t.Errorf("%s: unknown result %s", row.Name, row.Expect.Result)
+		}
+	}
+}
+
+// TestKAT39ReceiptChainProofBytesMatchEncoder requires
+// EncodeConsistencyProof(BuildConsistencyProof(...)) to reproduce the KAT's
+// own consistency-proof bytes for each step of the accepted 1->3->4->7
+// chain, byte for byte (GML15-F3). Step 1 (3->4) is the case that mattered:
+// BuildConsistencyProof leaves a nil path for the one tree-size-1
+// accumulator peak above the split, and the KAT vector (produced by the
+// protocol reference, not this package) writes it as an empty array (`80`),
+// not CBOR null (`f6`); the encoder must match that, not its own prior
+// lenient behaviour.
+func TestKAT39ReceiptChainProofBytesMatchEncoder(t *testing.T) {
+	f := kat39Load(t)
+	store := kat39Store(t)
+	var row *kat39Chain
+	for i := range f.ReceiptChains {
+		if f.ReceiptChains[i].Name == "accept/chain-1-3-4-7" {
+			row = &f.ReceiptChains[i]
+			break
+		}
+	}
+	if row == nil {
+		t.Fatal("the vectors carry no accept/chain-1-3-4-7 row")
+	}
+	if len(row.ConsistencyProofsHex) != len(row.Steps) {
+		t.Fatalf("row carries %d consistency proofs for %d steps",
+			len(row.ConsistencyProofsHex), len(row.Steps))
+	}
+	for i, step := range row.Steps {
+		proof, err := BuildConsistencyProof(store, step.TreeSize1, step.TreeSize2)
+		if err != nil {
+			t.Fatalf("step %d (%d->%d): build: %v", i, step.TreeSize1, step.TreeSize2, err)
+		}
+		got, err := EncodeConsistencyProof(proof)
+		if err != nil {
+			t.Fatalf("step %d (%d->%d): encode: %v", i, step.TreeSize1, step.TreeSize2, err)
+		}
+		want := kat39Bytes(t, row.ConsistencyProofsHex[i])
+		if hex.EncodeToString(got) != hex.EncodeToString(want) {
+			t.Errorf("step %d (%d->%d): encoded bytes differ from the KAT vector\n got=%x\nwant=%x",
+				i, step.TreeSize1, step.TreeSize2, got, want)
 		}
 	}
 }

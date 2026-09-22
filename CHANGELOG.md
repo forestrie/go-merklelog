@@ -30,6 +30,11 @@ entries note the affected module.
   before it, a bare consistency-proof byte string. An empty array is
   rejected (`ErrProofChainEmpty`), as is a chain whose links do not join
   (`ErrProofChainNotContiguous`).
+- **massifs:** `DecodeCheckpointReceipt` now decodes strictly (GML15-F1):
+  duplicate map keys, indefinite-length items, a non-canonical map key order
+  and a non-shortest-form integer are rejected, as is a consistency-proofs
+  array element that is not a byte string and a CBOR tag wrapping the
+  consistency-proofs value.
 - **mmr:** `VerifyConsistency` now folds through `ConsistentRootsForSizes`:
   `MMRSizeB` must be a complete MMR size and every path must have exactly
   the length the two sizes imply. Failures wrap the new sentinels

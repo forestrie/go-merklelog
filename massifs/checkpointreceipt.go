@@ -1,6 +1,7 @@
 package massifs
 
 import (
+	"bytes"
 	"fmt"
 
 	"github.com/fxamacker/cbor/v2"
@@ -92,6 +93,9 @@ const coseSign1Tag byte = 0xd2
 // consistency-proof from the consistency-proofs array (major type 4).
 const cborMajorByteString byte = 2
 
+// cborMajorArray is CBOR major type 4, the consistency-proofs array form.
+const cborMajorArray byte = 4
+
 // ConsistencyProof is the draft-bryce consistency proof (checkpoint format v3):
 // the accumulator for tree-size-1 is a prefix of the accumulator for
 // tree-size-2. Nodes are the raw hash bytes used throughout go-merklelog.
@@ -145,12 +149,34 @@ type CheckpointReceipt struct {
 // encodings are stable across producers.
 var canonicalReceiptCBOR cbor.EncMode
 
+// receiptDecMode is the strict decode mode for every unmarshal that reads a
+// checkpoint receipt (GML15-F1): duplicate map keys and indefinite-length
+// items have more than one reading, so accepting either would let two
+// implementations disagree on what a receipt says while both call it valid.
+// TagsMd is left at its default (tags allowed): peak receipts and other
+// unprotected header values are legitimately tagged COSE objects. This mode
+// only narrows the wire-form envelope; it does not establish canonical key
+// order or shortest-form integers, which fxamacker has no option for and are
+// instead checked by re-marshalling with canonicalReceiptCBOR and comparing
+// to the input bytes (see decodeConsistencyProofs, DecodeConsistencyProof and
+// DecodeCheckpointReceipt).
+var receiptDecMode cbor.DecMode
+
 func init() {
 	em, err := cbor.CanonicalEncOptions().EncMode()
 	if err != nil {
 		panic(fmt.Sprintf("massifs: canonical cbor mode: %v", err))
 	}
 	canonicalReceiptCBOR = em
+
+	dm, err := cbor.DecOptions{
+		DupMapKey:   cbor.DupMapKeyEnforcedAPF,
+		IndefLength: cbor.IndefLengthForbidden,
+	}.DecMode()
+	if err != nil {
+		panic(fmt.Sprintf("massifs: strict checkpoint receipt cbor mode: %v", err))
+	}
+	receiptDecMode = dm
 }
 
 // DetachedPayload returns the COSE detached payload a consistency receipt
@@ -238,15 +264,35 @@ func EncodeConsistencyProof(p ConsistencyProof) ([]byte, error) {
 	return bstr, nil
 }
 
-// DecodeConsistencyProof reverses EncodeConsistencyProof.
+// DecodeConsistencyProof reverses EncodeConsistencyProof. The inner array
+// must be canonically encoded (GML15-F1): fxamacker has no decode option for
+// canonical form or shortest-form integers, so this re-marshals the decoded
+// tuple with canonicalReceiptCBOR and requires the bytes to match the input,
+// which also catches a non-shortest-form integer field. Paths/RightPeaks are
+// normalised nil -> empty before the comparison, the same normalisation
+// EncodeConsistencyProof applies before marshalling, so a canonical `80`
+// empty array round-trips.
 func DecodeConsistencyProof(bstr []byte) (ConsistencyProof, error) {
 	var inner []byte
-	if err := cbor.Unmarshal(bstr, &inner); err != nil {
+	if err := receiptDecMode.Unmarshal(bstr, &inner); err != nil {
 		return ConsistencyProof{}, fmt.Errorf("unwrap consistency proof bstr: %w", err)
 	}
 	var cp cborConsistencyProof
-	if err := cbor.Unmarshal(inner, &cp); err != nil {
+	if err := receiptDecMode.Unmarshal(inner, &cp); err != nil {
 		return ConsistencyProof{}, fmt.Errorf("decode consistency proof array: %w", err)
+	}
+	if cp.Paths == nil {
+		cp.Paths = [][][]byte{}
+	}
+	if cp.RightPeaks == nil {
+		cp.RightPeaks = [][]byte{}
+	}
+	canonical, err := canonicalReceiptCBOR.Marshal(cp)
+	if err != nil {
+		return ConsistencyProof{}, fmt.Errorf("re-encode consistency proof array: %w", err)
+	}
+	if !bytes.Equal(canonical, inner) {
+		return ConsistencyProof{}, fmt.Errorf("decode consistency proof array: is not canonically encoded")
 	}
 	return ConsistencyProof{
 		TreeSize1:  cp.TreeSize1,
@@ -333,28 +379,33 @@ func DecodeCheckpointReceipt(data []byte) (CheckpointReceipt, error) {
 	// Unwrap the COSE_Sign1 tag (18) if present.
 	if len(data) > 0 && data[0] == coseSign1Tag {
 		var tag cbor.RawTag
-		if err := cbor.Unmarshal(data, &tag); err != nil {
+		if err := receiptDecMode.Unmarshal(data, &tag); err != nil {
 			return CheckpointReceipt{}, fmt.Errorf("decode COSE_Sign1 tag: %w", err)
 		}
 		data = tag.Content
 	}
 	var arr []cbor.RawMessage
-	if err := cbor.Unmarshal(data, &arr); err != nil {
+	if err := receiptDecMode.Unmarshal(data, &arr); err != nil {
 		return CheckpointReceipt{}, fmt.Errorf("decode COSE Sign1 array: %w", err)
 	}
 	if len(arr) != 4 {
 		return CheckpointReceipt{}, fmt.Errorf("COSE Sign1 must have 4 elements, got %d", len(arr))
 	}
 	var protected []byte
-	if err := cbor.Unmarshal(arr[0], &protected); err != nil {
+	if err := receiptDecMode.Unmarshal(arr[0], &protected); err != nil {
 		return CheckpointReceipt{}, fmt.Errorf("decode protected header: %w", err)
 	}
 	var unprotected map[int64]cbor.RawMessage
-	if err := cbor.Unmarshal(arr[1], &unprotected); err != nil {
+	if err := receiptDecMode.Unmarshal(arr[1], &unprotected); err != nil {
 		return CheckpointReceipt{}, fmt.Errorf("decode unprotected header: %w", err)
 	}
+	if canonical, err := canonicalReceiptCBOR.Marshal(unprotected); err != nil {
+		return CheckpointReceipt{}, fmt.Errorf("re-encode unprotected header: %w", err)
+	} else if !bytes.Equal(canonical, arr[1]) {
+		return CheckpointReceipt{}, fmt.Errorf("decode unprotected header: is not canonically encoded")
+	}
 	var signature []byte
-	if err := cbor.Unmarshal(arr[3], &signature); err != nil {
+	if err := receiptDecMode.Unmarshal(arr[3], &signature); err != nil {
 		return CheckpointReceipt{}, fmt.Errorf("decode signature: %w", err)
 	}
 
@@ -363,8 +414,13 @@ func DecodeCheckpointReceipt(data []byte) (CheckpointReceipt, error) {
 		return CheckpointReceipt{}, fmt.Errorf("receipt has no verifiable-proofs (label %d)", checkpointLabelVDP)
 	}
 	var vp map[int64]cbor.RawMessage
-	if err := cbor.Unmarshal(vpRaw, &vp); err != nil {
+	if err := receiptDecMode.Unmarshal(vpRaw, &vp); err != nil {
 		return CheckpointReceipt{}, fmt.Errorf("decode verifiable-proofs: %w", err)
+	}
+	if canonical, err := canonicalReceiptCBOR.Marshal(vp); err != nil {
+		return CheckpointReceipt{}, fmt.Errorf("re-encode verifiable-proofs: %w", err)
+	} else if !bytes.Equal(canonical, vpRaw) {
+		return CheckpointReceipt{}, fmt.Errorf("decode verifiable-proofs: is not canonically encoded")
 	}
 	proofsRaw, ok := vp[checkpointKeyConsistencyProof]
 	if !ok {
@@ -377,7 +433,7 @@ func DecodeCheckpointReceipt(data []byte) (CheckpointReceipt, error) {
 
 	var peakReceipts [][]byte
 	if raw, ok := unprotected[SealPeakReceiptsLabel]; ok {
-		if err := cbor.Unmarshal(raw, &peakReceipts); err != nil {
+		if err := receiptDecMode.Unmarshal(raw, &peakReceipts); err != nil {
 			return CheckpointReceipt{}, fmt.Errorf("decode peak receipts: %w", err)
 		}
 	}
@@ -417,28 +473,51 @@ func cborMajorType(data []byte) (byte, bool) {
 // array is rejected: a receipt proves something or it is not a receipt of
 // consistency. A bare consistency-proof byte string is also accepted, as the
 // single-proof form receipts sealed before the array form carry; it decodes
-// to a chain of one.
+// to a chain of one. Any other major type - including a CBOR tag (major 6)
+// wrapping either form - is rejected (GML15-F1): a generic COSE/CBOR reader
+// that unwraps tags before this check would see a different value than one
+// that does not. The array itself, and each of its elements, must be
+// canonically encoded and each element must be a byte string; an array
+// element of any other major type (for example a CBOR array of small
+// unsigned integers, which fxamacker will happily decode into a []byte) is
+// rejected before it is handed to DecodeConsistencyProof.
 func decodeConsistencyProofs(raw cbor.RawMessage) ([]ConsistencyProof, error) {
 	major, ok := cborMajorType(raw)
 	if !ok {
 		return nil, fmt.Errorf("decode consistency-proofs: empty value")
 	}
-	if major == cborMajorByteString {
+	switch major {
+	case cborMajorByteString:
 		proof, err := DecodeConsistencyProof(raw)
 		if err != nil {
 			return nil, err
 		}
 		return []ConsistencyProof{proof}, nil
+	case cborMajorArray:
+		// handled below
+	default:
+		return nil, fmt.Errorf(
+			"decode consistency-proofs: unexpected major type %d, want a byte string (2) or an array (4)", major)
 	}
 	var encoded []cbor.RawMessage
-	if err := cbor.Unmarshal(raw, &encoded); err != nil {
+	if err := receiptDecMode.Unmarshal(raw, &encoded); err != nil {
 		return nil, fmt.Errorf("decode consistency-proofs array: %w", err)
 	}
 	if len(encoded) == 0 {
 		return nil, ErrProofChainEmpty
 	}
+	canonical, err := canonicalReceiptCBOR.Marshal(encoded)
+	if err != nil {
+		return nil, fmt.Errorf("re-encode consistency-proofs array: %w", err)
+	}
+	if !bytes.Equal(canonical, raw) {
+		return nil, fmt.Errorf("decode consistency-proofs array: is not canonically encoded")
+	}
 	proofs := make([]ConsistencyProof, len(encoded))
 	for i, item := range encoded {
+		if m, ok := cborMajorType(item); !ok || m != cborMajorByteString {
+			return nil, fmt.Errorf("consistency proof %d: expected a byte string", i)
+		}
 		proof, err := DecodeConsistencyProof(item)
 		if err != nil {
 			return nil, fmt.Errorf("consistency proof %d: %w", i, err)

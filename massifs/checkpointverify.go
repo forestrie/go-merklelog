@@ -22,27 +22,37 @@ var ErrVerifierRequired = errors.New("a COSE verifier is required to verify a ch
 // boundaries and still verify.
 const nodeWidth = sha256.Size
 
-// checkSignedSize requires the tree-size-2 signed in the receipt's protected
-// header (ADR-0066) to equal the size the receipt's consistency proof
-// declares, and that size to be a complete mmr size. Without the first, the
-// same signed accumulator is accepted at every size with the same peak
-// count: a first checkpoint signed for size 1 verifies as size 2^64-1, and a
-// 7 -> 8 extension verifies as 7 -> 10. Without the second, mmr.Peaks reads
-// no peaks at all and the signature would be checked over an empty payload.
-func checkSignedSize(receipt *CheckpointReceipt) (uint64, error) {
+// checkProtectedHeader requires the receipt's protected header to carry a
+// COSE algorithm (label 1) that decodes as a CBOR integer, and a tree-size-2
+// (ADR-0066) equal to the size the receipt's consistency proof declares and
+// to a complete mmr size. The contract's header walk rejects a header
+// lacking a readable label 1 with ClaimNotFound(1) or UnexpectedMajorType
+// (D9); this must reject the same headers so a header the chain would never
+// accept cannot verify off-chain instead — before any signature check, and
+// unconditionally, not only when a downstream check happens to consult the
+// algorithm. Without the size check, the same signed accumulator is accepted
+// at every size with the same peak count: a first checkpoint signed for size
+// 1 verifies as size 2^64-1, and a 7 -> 8 extension verifies as 7 -> 10.
+// Without the completeness check, mmr.Peaks reads no peaks at all and the
+// signature would be checked over an empty payload.
+func checkProtectedHeader(receipt *CheckpointReceipt) (size uint64, alg int64, err error) {
+	alg, err = ProtectedHeaderAlgorithm(receipt.ProtectedHeader)
+	if err != nil {
+		return 0, 0, err
+	}
 	signed, err := ProtectedHeaderTreeSize(receipt.ProtectedHeader)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	size := receipt.Proof.TreeSize2
+	size = receipt.Proof.TreeSize2
 	if signed != size {
-		return 0, fmt.Errorf(
+		return 0, 0, fmt.Errorf(
 			"%w: signed %d, declared %d", ErrSignedSizeMismatch, signed, size)
 	}
 	if size == 0 || mmr.MMRSizeForLeafCount(mmr.PeaksBitmap(size)) != size {
-		return 0, fmt.Errorf("%w: tree-size-2 %d", mmr.ErrIncompleteTreeSize, size)
+		return 0, 0, fmt.Errorf("%w: tree-size-2 %d", mmr.ErrIncompleteTreeSize, size)
 	}
-	return size, nil
+	return size, alg, nil
 }
 
 // checkNodeWidths requires every path node and right peak of the proof to be
@@ -72,13 +82,15 @@ var p256HalfOrder = func() *big.Int {
 	return new(big.Int).Rsh(n, 1)
 }()
 
-func verifyReceiptSignature(receipt *CheckpointReceipt, accumulator [][]byte, verifier cose.Verifier) error {
+func verifyReceiptSignature(receipt *CheckpointReceipt, alg int64, accumulator [][]byte, verifier cose.Verifier) error {
 	// The contract's P-256 verifier rejects a high-s signature; go-cose's does
 	// not. Reject it here so no checkpoint verifies off-chain that the chain
 	// refuses. The sealer normalises to low-s (normalizeSignatureLowS), so no
-	// genuine checkpoint is affected.
-	if alg, algErr := ProtectedHeaderAlgorithm(receipt.ProtectedHeader); algErr == nil &&
-		alg == int64(cose.AlgorithmES256) && len(receipt.Signature) == 64 {
+	// genuine checkpoint is affected. alg is already known to be a CBOR
+	// integer (checkProtectedHeader ran first), so unlike before this guard
+	// is never silently skipped for a header whose algorithm could not be
+	// read.
+	if alg == int64(cose.AlgorithmES256) && len(receipt.Signature) == 64 {
 		s := new(big.Int).SetBytes(receipt.Signature[32:])
 		if s.Cmp(p256HalfOrder) > 0 {
 			return fmt.Errorf("%w: checkpoint receipt for sealed size %d: high-s signature",
@@ -113,7 +125,7 @@ func VerifyCheckpointReceipt(
 	if verifier == nil {
 		return nil, ErrVerifierRequired
 	}
-	size, err := checkSignedSize(receipt)
+	size, alg, err := checkProtectedHeader(receipt)
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +136,7 @@ func VerifyCheckpointReceipt(
 	if len(accumulator) == 0 {
 		return nil, fmt.Errorf("%w: no peaks for sealed size %d", ErrSealVerifyFailed, size)
 	}
-	if err := verifyReceiptSignature(receipt, accumulator, verifier); err != nil {
+	if err := verifyReceiptSignature(receipt, alg, accumulator, verifier); err != nil {
 		return nil, err
 	}
 	return accumulator, nil
@@ -151,7 +163,7 @@ func VerifyCheckpointReceiptFromState(
 	if verifier == nil {
 		return nil, ErrVerifierRequired
 	}
-	size, err := checkSignedSize(receipt)
+	size, alg, err := checkProtectedHeader(receipt)
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +190,7 @@ func VerifyCheckpointReceiptFromState(
 	accumulator := make([][]byte, 0, len(roots)+len(proof.RightPeaks))
 	accumulator = append(accumulator, roots...)
 	accumulator = append(accumulator, proof.RightPeaks...)
-	if err := verifyReceiptSignature(receipt, accumulator, verifier); err != nil {
+	if err := verifyReceiptSignature(receipt, alg, accumulator, verifier); err != nil {
 		return nil, err
 	}
 	return accumulator, nil

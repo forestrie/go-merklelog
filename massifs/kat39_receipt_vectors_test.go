@@ -21,7 +21,7 @@ import (
 	"github.com/veraison/go-cose"
 )
 
-const kat39VectorsSHA256 = "391d203b99b8dc41226694edee4eab3da3f1aa9bc651d13408d1a21b0986a8b8"
+const kat39VectorsSHA256 = "fb6bbde735537cfc97f83c52cfc4c609b4d1ed1474157910d7be0814456102c8"
 
 type kat39Expect struct {
 	Result   string `json:"result"`
@@ -32,6 +32,7 @@ type kat39Expect struct {
 
 type kat39File struct {
 	Tree struct {
+		NodesHex     []string `json:"nodes_hex"`
 		Accumulators map[string]struct {
 			PeaksHex []string `json:"peaks_hex"`
 		} `json:"accumulators"`
@@ -69,6 +70,23 @@ type kat39File struct {
 	} `json:"keys"`
 	Receipts         []kat39Receipt `json:"receipts"`
 	ReceiptNegatives []kat39Receipt `json:"receipt_negatives"`
+	ReceiptChains    []kat39Chain   `json:"receipt_chains"`
+}
+
+// kat39Chain is a receipt relaying several consistency proofs under one
+// signature (ADR-0066 D2). TrustedTreeSize1 is the size the verifier holds
+// state for, which the first step must start at.
+type kat39Chain struct {
+	Name                 string   `json:"name"`
+	Alg                  int64    `json:"alg"`
+	TrustedTreeSize1     uint64   `json:"trusted_tree_size_1"`
+	ReceiptCborHex       string   `json:"receipt_cbor_hex"`
+	ConsistencyProofsHex []string `json:"consistency_proofs_hex"`
+	Steps                []struct {
+		TreeSize1 uint64 `json:"tree_size_1"`
+		TreeSize2 uint64 `json:"tree_size_2"`
+	} `json:"steps"`
+	Expect kat39Expect `json:"expect"`
 }
 
 type kat39Receipt struct {
@@ -287,6 +305,118 @@ func TestKAT39ReceiptNegatives(t *testing.T) {
 		}[row.Expect.Reason]
 		if want != nil && !errors.Is(err, want) {
 			t.Errorf("%s: want %v, got %v", row.Name, want, err)
+		}
+	}
+}
+
+// TestKAT39ReceiptChains verifies the relayed-chain rows: a chain is folded
+// step by step from the trusted origin and the signature is checked against
+// the accumulator the last step reaches, so the accepted row must reach the
+// tree's own accumulator for the signed size and each rejected row must fail
+// for the reason it names.
+func TestKAT39ReceiptChains(t *testing.T) {
+	f := kat39Load(t)
+	if len(f.ReceiptChains) == 0 {
+		t.Fatal("the vectors carry no receipt_chains rows")
+	}
+	verifier := kat39ES256Verifier(t, f)
+	require := func(cond bool, format string, args ...any) {
+		t.Helper()
+		if !cond {
+			t.Errorf(format, args...)
+		}
+	}
+	for _, row := range f.ReceiptChains {
+		if row.Alg != int64(cose.AlgorithmES256) {
+			continue // KS256 (secp256k1 + keccak) has no go-cose verifier
+		}
+		receipt, err := DecodeCheckpointReceipt(kat39Bytes(t, row.ReceiptCborHex))
+		if err != nil {
+			t.Fatalf("%s: decode: %v", row.Name, err)
+		}
+		require(len(receipt.Proofs) == len(row.Steps),
+			"%s: %d proofs decoded, %d steps declared", row.Name, len(receipt.Proofs), len(row.Steps))
+		for i, step := range row.Steps {
+			require(receipt.Proofs[i].TreeSize1 == step.TreeSize1 &&
+				receipt.Proofs[i].TreeSize2 == step.TreeSize2,
+				"%s: step %d is %d -> %d, the row declares %d -> %d", row.Name, i,
+				receipt.Proofs[i].TreeSize1, receipt.Proofs[i].TreeSize2,
+				step.TreeSize1, step.TreeSize2)
+		}
+
+		origin := [][]byte{}
+		if row.TrustedTreeSize1 > 0 {
+			origin = kat39List(t, f.Tree.Accumulators[jsonKey(row.TrustedTreeSize1)].PeaksHex)
+		}
+		acc, err := VerifyCheckpointReceiptFromState(
+			row.TrustedTreeSize1, origin, &receipt, verifier)
+		switch row.Expect.Result {
+		case "accept":
+			if err != nil {
+				t.Errorf("%s: verify: %v", row.Name, err)
+				continue
+			}
+			target := kat39List(t, f.Tree.Accumulators[jsonKey(row.Expect.TreeSize)].PeaksHex)
+			require(kat39Equal(acc, target),
+				"%s: the folded accumulator differs from the tree's for size %d",
+				row.Name, row.Expect.TreeSize)
+		case "reject":
+			if err == nil {
+				t.Errorf("%s (%s): accepted", row.Name, row.Expect.Reason)
+				continue
+			}
+			want := map[string]error{
+				"chain_not_contiguous": ErrProofChainNotContiguous,
+				"signed_size_mismatch": ErrSignedSizeMismatch,
+			}[row.Expect.Reason]
+			if want != nil && !errors.Is(err, want) {
+				t.Errorf("%s: want %v, got %v", row.Name, want, err)
+			}
+		default:
+			t.Errorf("%s: unknown result %s", row.Name, row.Expect.Result)
+		}
+	}
+}
+
+// TestKAT39ReceiptChainProofBytesMatchEncoder requires
+// EncodeConsistencyProof(BuildConsistencyProof(...)) to reproduce the KAT's
+// own consistency-proof bytes for each step of the accepted 1->3->4->7
+// chain, byte for byte (GML15-F3). Step 1 (3->4) is the case that mattered:
+// BuildConsistencyProof leaves a nil path for the one tree-size-1
+// accumulator peak above the split, and the KAT vector (produced by the
+// protocol reference, not this package) writes it as an empty array (`80`),
+// not CBOR null (`f6`); the encoder must match that, not its own prior
+// lenient behaviour.
+func TestKAT39ReceiptChainProofBytesMatchEncoder(t *testing.T) {
+	f := kat39Load(t)
+	store := kat39Store(t)
+	var row *kat39Chain
+	for i := range f.ReceiptChains {
+		if f.ReceiptChains[i].Name == "accept/chain-1-3-4-7" {
+			row = &f.ReceiptChains[i]
+			break
+		}
+	}
+	if row == nil {
+		t.Fatal("the vectors carry no accept/chain-1-3-4-7 row")
+	}
+	if len(row.ConsistencyProofsHex) != len(row.Steps) {
+		t.Fatalf("row carries %d consistency proofs for %d steps",
+			len(row.ConsistencyProofsHex), len(row.Steps))
+	}
+	for i, step := range row.Steps {
+		proof, err := BuildConsistencyProof(store, step.TreeSize1, step.TreeSize2)
+		if err != nil {
+			t.Fatalf("step %d (%d->%d): build: %v", i, step.TreeSize1, step.TreeSize2, err)
+		}
+		got, err := EncodeConsistencyProof(proof)
+		if err != nil {
+			t.Fatalf("step %d (%d->%d): encode: %v", i, step.TreeSize1, step.TreeSize2, err)
+		}
+		want := kat39Bytes(t, row.ConsistencyProofsHex[i])
+		if hex.EncodeToString(got) != hex.EncodeToString(want) {
+			t.Errorf("step %d (%d->%d): encoded bytes differ from the KAT vector\n got=%x\nwant=%x",
+				i, step.TreeSize1, step.TreeSize2, got, want)
 		}
 	}
 }

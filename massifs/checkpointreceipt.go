@@ -1,6 +1,7 @@
 package massifs
 
 import (
+	"bytes"
 	"fmt"
 
 	"github.com/fxamacker/cbor/v2"
@@ -9,13 +10,14 @@ import (
 // Checkpoint format v3 (ADR-0046, sizes: ADR-0066): the sealed checkpoint
 // object is a draft-bryce COSE Receipt of Consistency. It is a COSE Sign1
 // with a detached payload (the raw concatenation of the accumulator peaks,
-// see DetachedPayload), carrying one consistency proof from the previous
-// checkpoint to this seal, and a protected header that also signs that
-// proof's tree-size-2 (ADR-0066). A publisher decodes it
-// into the pre-decoded parts the univocity publishCheckpoint contract takes,
-// and chains the proofs from consecutive checkpoints into the
-// ConsistencyProof[] calldata when catching up over multiple seals (one seal
-// -> one proof; the chain is assembled at publish time).
+// see DetachedPayload), carrying one or more consistency proofs and a
+// protected header that signs the last proof's tree-size-2 (ADR-0066 D1,
+// D2). One sealed step contributes one proof; a receipt that relays a
+// catch-up over several sealed steps carries them in order, each starting at
+// the previous one's tree-size-2, and the signature covers the accumulator
+// the last one reaches. A publisher decodes it into the pre-decoded parts the
+// univocity publishCheckpoint contract takes; the contract's
+// ConsistencyProof[] calldata is that same chain.
 //
 // This is the single source of the format for both the producer (the sealer,
 // via rootsigner) and the consumers (verify/replicate); higher layers
@@ -34,9 +36,10 @@ const (
 	// checkpointLabelVDP is the unprotected-header label carrying the
 	// verifiable-proofs map (draft: vdp).
 	checkpointLabelVDP int64 = 396
-	// checkpointKeyConsistencyProof is the verifiable-proofs map key for the
-	// single consistency proof a checkpoint receipt carries (draft:
-	// consistency-proof).
+	// checkpointKeyConsistencyProof is the verifiable-proofs map key under
+	// which a checkpoint receipt carries its consistency proofs (draft:
+	// consistency-proof). The value is `consistency-proofs = [ +
+	// consistency-proof ]`, an array of one or more encoded proofs.
 	checkpointKeyConsistencyProof int64 = -2
 
 	// COSEPrivateStart is the arithmetic base Forestrie's derived private-use
@@ -86,6 +89,13 @@ const (
 // 0..23 encode in the tag's single initial byte: 0xc0 | 18 = 0xd2.
 const coseSign1Tag byte = 0xd2
 
+// cborMajorByteString is CBOR major type 2, which distinguishes a bare
+// consistency-proof from the consistency-proofs array (major type 4).
+const cborMajorByteString byte = 2
+
+// cborMajorArray is CBOR major type 4, the consistency-proofs array form.
+const cborMajorArray byte = 4
+
 // ConsistencyProof is the draft-bryce consistency proof (checkpoint format v3):
 // the accumulator for tree-size-1 is a prefix of the accumulator for
 // tree-size-2. Nodes are the raw hash bytes used throughout go-merklelog.
@@ -103,13 +113,25 @@ type ConsistencyProof struct {
 }
 
 // CheckpointReceipt is a decoded format-v3 checkpoint object: the pre-decoded
-// COSE Sign1 parts plus the single consistency proof it carries. The detached
-// payload is not stored in the object; a verifier reconstructs it from the
-// proof (see mmr.ConsistentRoots) and DetachedPayload.
+// COSE Sign1 parts plus the consistency proofs it carries. The detached
+// payload is not stored in the object; a verifier reconstructs it by folding
+// the proofs from a state it already trusts (see
+// VerifyCheckpointReceiptFromState) and DetachedPayload.
 type CheckpointReceipt struct {
 	ProtectedHeader []byte
 	Signature       []byte
-	Proof           ConsistencyProof
+	// Proofs is the chain the receipt carries, in order: the first proof
+	// starts at the size the verifier already trusts, each later proof starts
+	// at its predecessor's tree-size-2, and the last proof's tree-size-2 is
+	// the size the protected header signs. A receipt carrying no proof does
+	// not decode (ErrProofChainEmpty).
+	Proofs []ConsistencyProof
+	// Proof is a copy of the last element of Proofs, set by
+	// DecodeCheckpointReceipt so that callers written against the
+	// single-proof receipt keep compiling. It is read-only compatibility:
+	// verification reads Proofs, so a change made here alone has no effect,
+	// and on a relayed chain this field is only the final link.
+	Proof ConsistencyProof
 	// PeakReceipts, when present, are the pre-signed peak inclusion receipts
 	// carried under SealPeakReceiptsLabel: one encoded detached-payload
 	// COSE_Sign1 per accumulator peak, in accumulator (descending height)
@@ -127,12 +149,34 @@ type CheckpointReceipt struct {
 // encodings are stable across producers.
 var canonicalReceiptCBOR cbor.EncMode
 
+// receiptDecMode is the strict decode mode for every unmarshal that reads a
+// checkpoint receipt (GML15-F1): duplicate map keys and indefinite-length
+// items have more than one reading, so accepting either would let two
+// implementations disagree on what a receipt says while both call it valid.
+// TagsMd is left at its default (tags allowed): peak receipts and other
+// unprotected header values are legitimately tagged COSE objects. This mode
+// only narrows the wire-form envelope; it does not establish canonical key
+// order or shortest-form integers, which fxamacker has no option for and are
+// instead checked by re-marshalling with canonicalReceiptCBOR and comparing
+// to the input bytes (see decodeConsistencyProofs, DecodeConsistencyProof and
+// DecodeCheckpointReceipt).
+var receiptDecMode cbor.DecMode
+
 func init() {
 	em, err := cbor.CanonicalEncOptions().EncMode()
 	if err != nil {
 		panic(fmt.Sprintf("massifs: canonical cbor mode: %v", err))
 	}
 	canonicalReceiptCBOR = em
+
+	dm, err := cbor.DecOptions{
+		DupMapKey:   cbor.DupMapKeyEnforcedAPF,
+		IndefLength: cbor.IndefLengthForbidden,
+	}.DecMode()
+	if err != nil {
+		panic(fmt.Sprintf("massifs: strict checkpoint receipt cbor mode: %v", err))
+	}
+	receiptDecMode = dm
 }
 
 // DetachedPayload returns the COSE detached payload a consistency receipt
@@ -195,19 +239,31 @@ type cborConsistencyProof struct {
 
 // EncodeConsistencyProof encodes one consistency proof as the draft's
 // `consistency-proof = bstr .cbor [...]`: a CBOR byte string whose content is
-// the CBOR array of the four fields.
+// the CBOR array of the four fields. A nil inner path is normalised to an
+// empty array before marshalling, the same as the top-level Paths/RightPeaks
+// nil below (GML15-F3): mmr.IndexConsistencyProof (via BuildConsistencyProof)
+// returns a nil path for every tree-size-1 accumulator peak above the split,
+// and fxamacker marshals a nil [][]byte as CBOR null rather than an empty
+// array. Null has no place in the draft CDDL there, and the TS twin decoder
+// rejects it, so a copy is normalised here rather than mutating the caller's
+// slices in place.
 func EncodeConsistencyProof(p ConsistencyProof) ([]byte, error) {
+	paths := make([][][]byte, len(p.Paths))
+	copy(paths, p.Paths)
+	for i, path := range paths {
+		if path == nil {
+			paths[i] = [][]byte{}
+		}
+	}
+	rightPeaks := p.RightPeaks
+	if rightPeaks == nil {
+		rightPeaks = [][]byte{}
+	}
 	cp := cborConsistencyProof{
 		TreeSize1:  p.TreeSize1,
 		TreeSize2:  p.TreeSize2,
-		Paths:      p.Paths,
-		RightPeaks: p.RightPeaks,
-	}
-	if cp.Paths == nil {
-		cp.Paths = [][][]byte{}
-	}
-	if cp.RightPeaks == nil {
-		cp.RightPeaks = [][]byte{}
+		Paths:      paths,
+		RightPeaks: rightPeaks,
 	}
 	inner, err := canonicalReceiptCBOR.Marshal(cp)
 	if err != nil {
@@ -220,15 +276,46 @@ func EncodeConsistencyProof(p ConsistencyProof) ([]byte, error) {
 	return bstr, nil
 }
 
-// DecodeConsistencyProof reverses EncodeConsistencyProof.
+// DecodeConsistencyProof reverses EncodeConsistencyProof. The inner array
+// must be canonically encoded (GML15-F1): fxamacker has no decode option for
+// canonical form or shortest-form integers, so this re-marshals the decoded
+// tuple with canonicalReceiptCBOR and requires the bytes to match the input,
+// which also catches a non-shortest-form integer field. The top-level
+// Paths/RightPeaks are normalised nil -> empty before the comparison, the
+// same normalisation EncodeConsistencyProof applies before marshalling, so
+// a canonical `80` empty array round-trips; a null inner path is rejected.
 func DecodeConsistencyProof(bstr []byte) (ConsistencyProof, error) {
 	var inner []byte
-	if err := cbor.Unmarshal(bstr, &inner); err != nil {
+	if err := receiptDecMode.Unmarshal(bstr, &inner); err != nil {
 		return ConsistencyProof{}, fmt.Errorf("unwrap consistency proof bstr: %w", err)
 	}
 	var cp cborConsistencyProof
-	if err := cbor.Unmarshal(inner, &cp); err != nil {
+	if err := receiptDecMode.Unmarshal(inner, &cp); err != nil {
 		return ConsistencyProof{}, fmt.Errorf("decode consistency proof array: %w", err)
+	}
+	if cp.Paths == nil {
+		cp.Paths = [][][]byte{}
+	}
+	if cp.RightPeaks == nil {
+		cp.RightPeaks = [][]byte{}
+	}
+	// An inner path decoded from CBOR null is nil where an empty array is
+	// not. The draft CDDL has no null there and the TS decoder rejects it,
+	// so it is rejected here too rather than normalised: an object sealed
+	// with the null form (before EncodeConsistencyProof normalised it) is
+	// re-sealed, not tolerated.
+	for i, path := range cp.Paths {
+		if path == nil {
+			return ConsistencyProof{}, fmt.Errorf(
+				"decode consistency proof array: path %d is null, want an array", i)
+		}
+	}
+	canonical, err := canonicalReceiptCBOR.Marshal(cp)
+	if err != nil {
+		return ConsistencyProof{}, fmt.Errorf("re-encode consistency proof array: %w", err)
+	}
+	if !bytes.Equal(canonical, inner) {
+		return ConsistencyProof{}, fmt.Errorf("decode consistency proof array: is not canonically encoded")
 	}
 	return ConsistencyProof{
 		TreeSize1:  cp.TreeSize1,
@@ -238,24 +325,51 @@ func DecodeConsistencyProof(bstr []byte) (ConsistencyProof, error) {
 	}, nil
 }
 
-// EncodeCheckpointReceipt encodes a format-v3 checkpoint: a COSE Sign1
-// [protected, unprotected, payload, signature] with a detached payload (null)
-// and the consistency proof under the unprotected verifiable-proofs map.
-// protectedHeader is the already-CBOR-encoded protected header bytes (carried
-// verbatim so the on-chain signature check sees the signed bytes); signature
-// is the raw COSE signature over SigStructure(protectedHeader, detached).
-// extraUnprotected labels (pre-signed peak receipts, delegation material) are
-// merged into the unprotected header; they do not affect the signature.
+// EncodeCheckpointReceipt encodes a format-v3 checkpoint carrying a single
+// consistency proof. See EncodeCheckpointReceiptChain, of which this is the
+// one-proof case: the proof is still written as the draft's
+// `consistency-proofs = [ + consistency-proof ]`, an array of one.
 func EncodeCheckpointReceipt(
 	protectedHeader []byte, proof ConsistencyProof, signature []byte,
 	extraUnprotected ...map[int64]cbor.RawMessage,
 ) ([]byte, error) {
-	proofBstr, err := EncodeConsistencyProof(proof)
+	return EncodeCheckpointReceiptChain(
+		protectedHeader, []ConsistencyProof{proof}, signature, extraUnprotected...)
+}
+
+// EncodeCheckpointReceiptChain encodes a format-v3 checkpoint: a COSE Sign1
+// [protected, unprotected, payload, signature] with a detached payload (null)
+// and the consistency proofs under the unprotected verifiable-proofs map, as
+// the draft's `consistency-proofs = [ + consistency-proof ]`. The proofs are
+// in fold order: the first starts at the size a verifier already trusts and
+// each later one at its predecessor's tree-size-2, the last of which is what
+// protectedHeader signs. protectedHeader is the already-CBOR-encoded
+// protected header bytes (carried verbatim so the on-chain signature check
+// sees the signed bytes); signature is the raw COSE signature over
+// SigStructure(protectedHeader, detached). extraUnprotected labels
+// (pre-signed peak receipts, delegation material) are merged into the
+// unprotected header; they do not affect the signature.
+func EncodeCheckpointReceiptChain(
+	protectedHeader []byte, proofs []ConsistencyProof, signature []byte,
+	extraUnprotected ...map[int64]cbor.RawMessage,
+) ([]byte, error) {
+	if len(proofs) == 0 {
+		return nil, ErrProofChainEmpty
+	}
+	encoded := make([]cbor.RawMessage, len(proofs))
+	for i, proof := range proofs {
+		proofBstr, err := EncodeConsistencyProof(proof)
+		if err != nil {
+			return nil, err
+		}
+		encoded[i] = proofBstr
+	}
+	proofArray, err := canonicalReceiptCBOR.Marshal(encoded)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("encode consistency-proofs array: %w", err)
 	}
 	verifiableProofs, err := canonicalReceiptCBOR.Marshal(
-		map[int64]cbor.RawMessage{checkpointKeyConsistencyProof: proofBstr},
+		map[int64]cbor.RawMessage{checkpointKeyConsistencyProof: proofArray},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("encode verifiable-proofs: %w", err)
@@ -288,28 +402,33 @@ func DecodeCheckpointReceipt(data []byte) (CheckpointReceipt, error) {
 	// Unwrap the COSE_Sign1 tag (18) if present.
 	if len(data) > 0 && data[0] == coseSign1Tag {
 		var tag cbor.RawTag
-		if err := cbor.Unmarshal(data, &tag); err != nil {
+		if err := receiptDecMode.Unmarshal(data, &tag); err != nil {
 			return CheckpointReceipt{}, fmt.Errorf("decode COSE_Sign1 tag: %w", err)
 		}
 		data = tag.Content
 	}
 	var arr []cbor.RawMessage
-	if err := cbor.Unmarshal(data, &arr); err != nil {
+	if err := receiptDecMode.Unmarshal(data, &arr); err != nil {
 		return CheckpointReceipt{}, fmt.Errorf("decode COSE Sign1 array: %w", err)
 	}
 	if len(arr) != 4 {
 		return CheckpointReceipt{}, fmt.Errorf("COSE Sign1 must have 4 elements, got %d", len(arr))
 	}
 	var protected []byte
-	if err := cbor.Unmarshal(arr[0], &protected); err != nil {
+	if err := receiptDecMode.Unmarshal(arr[0], &protected); err != nil {
 		return CheckpointReceipt{}, fmt.Errorf("decode protected header: %w", err)
 	}
 	var unprotected map[int64]cbor.RawMessage
-	if err := cbor.Unmarshal(arr[1], &unprotected); err != nil {
+	if err := receiptDecMode.Unmarshal(arr[1], &unprotected); err != nil {
 		return CheckpointReceipt{}, fmt.Errorf("decode unprotected header: %w", err)
 	}
+	if canonical, err := canonicalReceiptCBOR.Marshal(unprotected); err != nil {
+		return CheckpointReceipt{}, fmt.Errorf("re-encode unprotected header: %w", err)
+	} else if !bytes.Equal(canonical, arr[1]) {
+		return CheckpointReceipt{}, fmt.Errorf("decode unprotected header: is not canonically encoded")
+	}
 	var signature []byte
-	if err := cbor.Unmarshal(arr[3], &signature); err != nil {
+	if err := receiptDecMode.Unmarshal(arr[3], &signature); err != nil {
 		return CheckpointReceipt{}, fmt.Errorf("decode signature: %w", err)
 	}
 
@@ -318,21 +437,26 @@ func DecodeCheckpointReceipt(data []byte) (CheckpointReceipt, error) {
 		return CheckpointReceipt{}, fmt.Errorf("receipt has no verifiable-proofs (label %d)", checkpointLabelVDP)
 	}
 	var vp map[int64]cbor.RawMessage
-	if err := cbor.Unmarshal(vpRaw, &vp); err != nil {
+	if err := receiptDecMode.Unmarshal(vpRaw, &vp); err != nil {
 		return CheckpointReceipt{}, fmt.Errorf("decode verifiable-proofs: %w", err)
 	}
-	proofBstr, ok := vp[checkpointKeyConsistencyProof]
+	if canonical, err := canonicalReceiptCBOR.Marshal(vp); err != nil {
+		return CheckpointReceipt{}, fmt.Errorf("re-encode verifiable-proofs: %w", err)
+	} else if !bytes.Equal(canonical, vpRaw) {
+		return CheckpointReceipt{}, fmt.Errorf("decode verifiable-proofs: is not canonically encoded")
+	}
+	proofsRaw, ok := vp[checkpointKeyConsistencyProof]
 	if !ok {
 		return CheckpointReceipt{}, fmt.Errorf("verifiable-proofs has no consistency proof (key %d)", checkpointKeyConsistencyProof)
 	}
-	proof, err := DecodeConsistencyProof(proofBstr)
+	proofs, err := decodeConsistencyProofs(proofsRaw)
 	if err != nil {
 		return CheckpointReceipt{}, err
 	}
 
 	var peakReceipts [][]byte
 	if raw, ok := unprotected[SealPeakReceiptsLabel]; ok {
-		if err := cbor.Unmarshal(raw, &peakReceipts); err != nil {
+		if err := receiptDecMode.Unmarshal(raw, &peakReceipts); err != nil {
 			return CheckpointReceipt{}, fmt.Errorf("decode peak receipts: %w", err)
 		}
 	}
@@ -351,8 +475,77 @@ func DecodeCheckpointReceipt(data []byte) (CheckpointReceipt, error) {
 	return CheckpointReceipt{
 		ProtectedHeader: protected,
 		Signature:       signature,
-		Proof:           proof,
+		Proofs:          proofs,
+		Proof:           proofs[len(proofs)-1],
 		PeakReceipts:    peakReceipts,
 		Extras:          extras,
 	}, nil
+}
+
+// cborMajorType reads the major type of the first CBOR item in data.
+func cborMajorType(data []byte) (byte, bool) {
+	if len(data) == 0 {
+		return 0, false
+	}
+	return data[0] >> 5, true
+}
+
+// decodeConsistencyProofs decodes the value under the verifiable-proofs
+// consistency-proof key. The draft form is `consistency-proofs = [ +
+// consistency-proof ]`, an array of one or more encoded proofs, and an empty
+// array is rejected: a receipt proves something or it is not a receipt of
+// consistency. A bare consistency-proof byte string is also accepted, as the
+// single-proof form receipts sealed before the array form carry; it decodes
+// to a chain of one. Any other major type - including a CBOR tag (major 6)
+// wrapping either form - is rejected (GML15-F1): a generic COSE/CBOR reader
+// that unwraps tags before this check would see a different value than one
+// that does not. The array itself, and each of its elements, must be
+// canonically encoded and each element must be a byte string; an array
+// element of any other major type (for example a CBOR array of small
+// unsigned integers, which fxamacker will happily decode into a []byte) is
+// rejected before it is handed to DecodeConsistencyProof.
+func decodeConsistencyProofs(raw cbor.RawMessage) ([]ConsistencyProof, error) {
+	major, ok := cborMajorType(raw)
+	if !ok {
+		return nil, fmt.Errorf("decode consistency-proofs: empty value")
+	}
+	switch major {
+	case cborMajorByteString:
+		proof, err := DecodeConsistencyProof(raw)
+		if err != nil {
+			return nil, err
+		}
+		return []ConsistencyProof{proof}, nil
+	case cborMajorArray:
+		// handled below
+	default:
+		return nil, fmt.Errorf(
+			"decode consistency-proofs: unexpected major type %d, want a byte string (2) or an array (4)", major)
+	}
+	var encoded []cbor.RawMessage
+	if err := receiptDecMode.Unmarshal(raw, &encoded); err != nil {
+		return nil, fmt.Errorf("decode consistency-proofs array: %w", err)
+	}
+	if len(encoded) == 0 {
+		return nil, ErrProofChainEmpty
+	}
+	canonical, err := canonicalReceiptCBOR.Marshal(encoded)
+	if err != nil {
+		return nil, fmt.Errorf("re-encode consistency-proofs array: %w", err)
+	}
+	if !bytes.Equal(canonical, raw) {
+		return nil, fmt.Errorf("decode consistency-proofs array: is not canonically encoded")
+	}
+	proofs := make([]ConsistencyProof, len(encoded))
+	for i, item := range encoded {
+		if m, ok := cborMajorType(item); !ok || m != cborMajorByteString {
+			return nil, fmt.Errorf("consistency proof %d: expected a byte string", i)
+		}
+		proof, err := DecodeConsistencyProof(item)
+		if err != nil {
+			return nil, fmt.Errorf("consistency proof %d: %w", i, err)
+		}
+		proofs[i] = proof
+	}
+	return proofs, nil
 }

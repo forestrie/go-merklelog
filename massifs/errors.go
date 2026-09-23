@@ -29,6 +29,8 @@ var (
 	ErrNodeWidth                  = errors.New("a consistency proof node is not the hash width")
 	ErrGeneratingConsistencyProof = errors.New("error while  creating a consistency proof")
 	ErrConsistencyProofCheck      = errors.New("verification error while checking a consistency proof")
+	ErrProofChainEmpty            = errors.New("the checkpoint receipt carries no consistency proof")
+	ErrProofChainNotContiguous    = errors.New("a consistency proof does not start where the previous one ends")
 	ErrInconsistentState          = errors.New("verification failed for a consistency proof")
 	ErrRemoteSealKeyMatchFailed   = errors.New("the provided public key did not match the remote sealing key")
 )

@@ -67,11 +67,29 @@ func WithUnprotectedExtras(extras map[int64]cbor.RawMessage) CheckpointSignOptio
 	}
 }
 
-// SignCheckpointReceipt produces a format-v3 checkpoint object (draft-bryce
-// COSE Receipt of Consistency, ADR-0046): it signs the detached raw-concat
-// payload of the accumulator for the seal's mmr size, over the COSE
-// Sig_structure the univocity contract verifies, and encodes the receipt with
-// the consistency proof in the unprotected header.
+// SignCheckpointReceipt produces a format-v3 checkpoint object carrying a
+// single consistency proof. See SignCheckpointReceiptChain, of which this is
+// the one-proof case.
+func SignCheckpointReceipt(
+	signer cose.Signer, proof ConsistencyProof, accumulator [][]byte,
+	opts ...CheckpointSignOption,
+) ([]byte, error) {
+	return SignCheckpointReceiptChain(
+		signer, []ConsistencyProof{proof}, accumulator, opts...)
+}
+
+// SignCheckpointReceiptChain produces a format-v3 checkpoint object
+// (draft-bryce COSE Receipt of Consistency, ADR-0046): it signs the detached
+// raw-concat payload of the accumulator for the seal's mmr size, over the
+// COSE Sig_structure the univocity contract verifies, and encodes the receipt
+// with the consistency proofs in the unprotected header.
+//
+// proofs is the chain in fold order, one per sealed step, and accumulator is
+// the accumulator of the last proof's tree-size-2 - the size the protected
+// header carries, and the only size the signature binds (ADR-0066 D2). The
+// intermediate sizes are checked against the verifier's own trusted state as
+// the chain is folded, so they need no signature of their own, and a
+// publisher may re-base a step under the original signature.
 //
 // The signer is the log's COSE signer (the sealer's delegated ES256/KMS key,
 // or a root key). The protected header is
@@ -89,10 +107,13 @@ func WithUnprotectedExtras(extras map[int64]cbor.RawMessage) CheckpointSignOptio
 // per accumulator peak and carried in the unprotected header, enabling any
 // holder of the checkpoint and replicated log data to mint inclusion receipts
 // without the signing key.
-func SignCheckpointReceipt(
-	signer cose.Signer, proof ConsistencyProof, accumulator [][]byte,
+func SignCheckpointReceiptChain(
+	signer cose.Signer, proofs []ConsistencyProof, accumulator [][]byte,
 	opts ...CheckpointSignOption,
 ) ([]byte, error) {
+	if len(proofs) == 0 {
+		return nil, ErrProofChainEmpty
+	}
 	var options checkpointSignOptions
 	for _, opt := range opts {
 		opt(&options)
@@ -101,7 +122,7 @@ func SignCheckpointReceipt(
 	protected, err := canonicalReceiptCBOR.Marshal(map[int64]any{
 		checkpointLabelAlg:       int64(signer.Algorithm()),
 		checkpointLabelVDS:       CheckpointVDSConsistency,
-		CheckpointLabelTreeSize2: proof.TreeSize2,
+		CheckpointLabelTreeSize2: proofs[len(proofs)-1].TreeSize2,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("encode protected header: %w", err)
@@ -133,9 +154,9 @@ func SignCheckpointReceipt(
 		extras[SealPeakReceiptsLabel] = encoded
 	}
 	if len(extras) == 0 {
-		return EncodeCheckpointReceipt(protected, proof, signature)
+		return EncodeCheckpointReceiptChain(protected, proofs, signature)
 	}
-	return EncodeCheckpointReceipt(protected, proof, signature, extras)
+	return EncodeCheckpointReceiptChain(protected, proofs, signature, extras)
 }
 
 // SignPeakReceipts signs one peak inclusion receipt per accumulator peak: a

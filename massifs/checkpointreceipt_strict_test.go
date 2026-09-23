@@ -7,7 +7,6 @@ package massifs
 // EncodeCheckpointReceiptChain, which never produces them.
 
 import (
-	"bytes"
 	"testing"
 
 	"github.com/forestrie/go-merklelog/mmr"
@@ -202,15 +201,11 @@ func TestDecodeCheckpointReceiptAcceptsTaggedUnprotectedValues(t *testing.T) {
 	require.Contains(t, receipt.Extras, SealDelegationProofLabel)
 }
 
-// GML15-F3 regression: an object sealed before EncodeConsistencyProof
-// normalised a nil inner path carries CBOR null (f6), not an empty array
-// (80), for that path. The decoder must keep accepting it, report an empty
-// path either way, and verify identically to the canonical (80) form: the
-// signature covers only the protected header and the detached payload, not
-// how a proof is encoded, and mmr.ConsistentRootsForSizes (via
-// VerifyCheckpointReceiptFromState) iterates a nil and an empty path the
-// same way.
-func TestDecodeConsistencyProofAcceptsNullInnerPath(t *testing.T) {
+// A null inner path (f6) where an empty array (80) belongs: the draft CDDL
+// has no null there and the TS decoder rejects it, so the Go decoder rejects
+// it too. Objects sealed before EncodeConsistencyProof normalised a nil
+// inner path carry this form and are re-sealed rather than tolerated.
+func TestDecodeConsistencyProofRejectsNullInnerPath(t *testing.T) {
 	store := kat39Store(t)
 	proof, err := BuildConsistencyProof(store, 3, 4)
 	require.NoError(t, err)
@@ -231,38 +226,12 @@ func TestDecodeConsistencyProofAcceptsNullInnerPath(t *testing.T) {
 	nullInner[4] = 0xf6
 	nullBstr, err := canonicalReceiptCBOR.Marshal(nullInner)
 	require.NoError(t, err)
-	require.Len(t, nullBstr, len(canonicalBstr), "same-length substitution")
 
-	gotNull, err := DecodeConsistencyProof(nullBstr)
-	require.NoError(t, err)
 	gotCanonical, err := DecodeConsistencyProof(canonicalBstr)
 	require.NoError(t, err)
-	require.Empty(t, gotNull.Paths[0])
 	require.Empty(t, gotCanonical.Paths[0])
-	require.Equal(t, gotCanonical.TreeSize1, gotNull.TreeSize1)
-	require.Equal(t, gotCanonical.TreeSize2, gotNull.TreeSize2)
-	require.Equal(t, gotCanonical.RightPeaks, gotNull.RightPeaks)
 
-	accumulator, err := mmr.PeakHashes(store, 3) // size 4
-	require.NoError(t, err)
-	trusted, err := mmr.PeakHashes(store, 2) // size 3
-	require.NoError(t, err)
-	signer, verifier := newES256Signer(t)
-
-	encodedCanonical, err := SignCheckpointReceiptChain(signer, []ConsistencyProof{proof}, accumulator)
-	require.NoError(t, err)
-	require.True(t, bytes.Contains(encodedCanonical, canonicalBstr),
-		"encoded receipt carries the canonical proof bytes verbatim")
-	encodedNull := bytes.Replace(encodedCanonical, canonicalBstr, nullBstr, 1)
-
-	receiptCanonical, err := DecodeCheckpointReceipt(encodedCanonical)
-	require.NoError(t, err)
-	receiptNull, err := DecodeCheckpointReceipt(encodedNull)
-	require.NoError(t, err)
-
-	accCanonical, err := VerifyCheckpointReceiptFromState(3, trusted, &receiptCanonical, verifier)
-	require.NoError(t, err)
-	accNull, err := VerifyCheckpointReceiptFromState(3, trusted, &receiptNull, verifier)
-	require.NoError(t, err)
-	require.Equal(t, accCanonical, accNull)
+	_, err = DecodeConsistencyProof(nullBstr)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "path 0 is null")
 }

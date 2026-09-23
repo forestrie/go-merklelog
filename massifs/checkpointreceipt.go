@@ -280,10 +280,10 @@ func EncodeConsistencyProof(p ConsistencyProof) ([]byte, error) {
 // must be canonically encoded (GML15-F1): fxamacker has no decode option for
 // canonical form or shortest-form integers, so this re-marshals the decoded
 // tuple with canonicalReceiptCBOR and requires the bytes to match the input,
-// which also catches a non-shortest-form integer field. Paths/RightPeaks are
-// normalised nil -> empty before the comparison, the same normalisation
-// EncodeConsistencyProof applies before marshalling, so a canonical `80`
-// empty array round-trips.
+// which also catches a non-shortest-form integer field. The top-level
+// Paths/RightPeaks are normalised nil -> empty before the comparison, the
+// same normalisation EncodeConsistencyProof applies before marshalling, so
+// a canonical `80` empty array round-trips; a null inner path is rejected.
 func DecodeConsistencyProof(bstr []byte) (ConsistencyProof, error) {
 	var inner []byte
 	if err := receiptDecMode.Unmarshal(bstr, &inner); err != nil {
@@ -299,10 +299,17 @@ func DecodeConsistencyProof(bstr []byte) (ConsistencyProof, error) {
 	if cp.RightPeaks == nil {
 		cp.RightPeaks = [][]byte{}
 	}
-	// Only the top-level slices are normalised here: an inner path decoded
-	// from CBOR null is left nil, so the re-marshal below reproduces the
-	// same null and still compares equal to a proof sealed before GML15-F3,
-	// which this decoder continues to accept.
+	// An inner path decoded from CBOR null is nil where an empty array is
+	// not. The draft CDDL has no null there and the TS decoder rejects it,
+	// so it is rejected here too rather than normalised: an object sealed
+	// with the null form (before EncodeConsistencyProof normalised it) is
+	// re-sealed, not tolerated.
+	for i, path := range cp.Paths {
+		if path == nil {
+			return ConsistencyProof{}, fmt.Errorf(
+				"decode consistency proof array: path %d is null, want an array", i)
+		}
+	}
 	canonical, err := canonicalReceiptCBOR.Marshal(cp)
 	if err != nil {
 		return ConsistencyProof{}, fmt.Errorf("re-encode consistency proof array: %w", err)

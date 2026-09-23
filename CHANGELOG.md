@@ -44,8 +44,8 @@ entries note the affected module.
 - **massifs:** `EncodeConsistencyProof` now writes a nil inner path (a
   tree-size-1 accumulator peak above the split) as an empty array, not CBOR
   null (GML15-F3): null has no place in the draft CDDL there, and the TS
-  twin decoder rejects it. `DecodeConsistencyProof` still accepts null for
-  objects sealed before this change.
+  twin decoder rejects it. `DecodeConsistencyProof` rejects null as well;
+  an object sealed with the null form is re-sealed, not tolerated.
 - **mmr:** `VerifyConsistency` now folds through `ConsistentRootsForSizes`:
   `MMRSizeB` must be a complete MMR size and every path must have exactly
   the length the two sizes imply. Failures wrap the new sentinels

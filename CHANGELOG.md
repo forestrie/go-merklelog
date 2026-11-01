@@ -10,7 +10,7 @@ entries note the affected module.
 
 - **massifs:** `SignCheckpointReceipt` now signs the consistency proof's
   `tree-size-2` in the protected header under the private label
-  `CheckpointLabelTreeSize2` (-65933) (ADR-0066, FOR-568). `tree-size-1`
+  `CheckpointLabelTreeSize2` (-65933) (ADR-0066). `tree-size-1`
   stays unsigned in the consistency proof; verifiers take the origin from
   state they trust. `VerifyCheckpointReceipt` requires the label and rejects
   a receipt whose signed size differs from the declared one
@@ -21,7 +21,7 @@ entries note the affected module.
   `ProtectedHeaderTreeSize`. `ProtectedHeaderAlgorithm` now also requires a
   canonical header.
 - **massifs:** A checkpoint receipt carries a chain of consistency proofs
-  rather than one (ADR-0066 D2, FOR-568). `CheckpointReceipt.Proofs` is the
+  rather than one (ADR-0066 D2). `CheckpointReceipt.Proofs` is the
   chain; `CheckpointReceipt.Proof` is retained as a read-only copy of its
   last element for callers written against the single-proof receipt, and is
   not what verification reads. Producers write the draft's

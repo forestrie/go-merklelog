@@ -1,9 +1,13 @@
 package massifs
 
 import (
+	"context"
+	"crypto/sha256"
+	"errors"
 	"testing"
 
 	"github.com/forestrie/go-merklelog/mmr"
+	"github.com/forestrie/go-merklelog/urkle"
 )
 
 // massifIndexKAT is the leaf index -> massif index known-answer table. The
@@ -34,6 +38,45 @@ func TestMassifIndexFromLeafIndexKAT(t *testing.T) {
 		if got := MassifIndexFromMMRIndex(tc.massifHeight, mmr.MMRIndex(tc.leafIndex)); got != tc.massifIndex {
 			t.Errorf("MassifIndexFromMMRIndex(h=%d, leaf=%d) = %d, want %d",
 				tc.massifHeight, tc.leafIndex, got, tc.massifIndex)
+		}
+	}
+}
+
+// TestMassifRollsOverAfterOneBasedHeightLeaves appends leaves to a real first
+// massif and checks where it fills, so the KAT above is anchored to what the
+// writer does rather than to the division helpers alone: a massif of height h
+// accepts exactly 2^(h-1) leaves, then returns ErrMassifFull.
+func TestMassifRollsOverAfterOneBasedHeightLeaves(t *testing.T) {
+	for _, h := range []uint8{1, 2, 3, 5, 8} {
+		mc, err := CreateFirstMassifContext(context.Background(), 1, h)
+		if err != nil {
+			t.Fatalf("h=%d: CreateFirstMassifContext: %v", h, err)
+		}
+		want := uint64(1) << (h - 1)
+		value := sha256.Sum256([]byte("leaf"))
+
+		var leaves uint64
+		for {
+			if _, err := mc.AddIndexedEntry(value[:]); err != nil {
+				if !errors.Is(err, ErrMassifFull) {
+					t.Fatalf("h=%d leaf %d: %v", h, leaves, err)
+				}
+				break
+			}
+			leaves++
+			if leaves > 2*want {
+				t.Fatalf("h=%d: massif never filled after %d leaves", h, leaves)
+			}
+		}
+
+		if leaves != want {
+			t.Errorf("h=%d: massif held %d leaves, want 2^(h-1) = %d", h, leaves, want)
+		}
+		if got := urkle.LeafCountForMassifHeight(h); got != leaves {
+			t.Errorf("h=%d: LeafCountForMassifHeight = %d, writer held %d", h, got, leaves)
+		}
+		if got := MassifIndexFromLeafIndex(h, leaves); got != 1 {
+			t.Errorf("h=%d: first leaf past the full massif maps to massif %d, want 1", h, got)
 		}
 	}
 }

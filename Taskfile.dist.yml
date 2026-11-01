@@ -14,6 +14,13 @@ includes:
     dir: .
 
 tasks:
+  docs:lint:
+    desc: Check docs with dox against forestrie/dox (see .dox.toml)
+    env:
+      DOX_SCHEMA_REPO: forestrie/dox
+    cmds:
+      - dox lint
+
 
   bootstrap:
     desc: bootstrap the development environment

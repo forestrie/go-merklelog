@@ -21,7 +21,7 @@ func MassifIndexFromLeafIndex(massifHeight uint8, leafIndex uint64) uint64 {
 	// Note: massif indexes start at 0.
 	// Note: leaf indexes starts at 0.
 	//
-	// Therefore, given a massif height of 2, that has max leaves of 4;
+	// Therefore, given a massif height of 3, that has max leaves of 2^(3-1) = 4;
 	//  if a leaf index of 3 is given, then it is in massif 0, along with leaves, 0, 1 and 2.
 	return leafIndex / massifMaxLeaves
 
